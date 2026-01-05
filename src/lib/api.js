@@ -1,19 +1,29 @@
 // src/lib/api.js
 const API_URL = "http://127.0.0.1:8000/api";
 
+const BASE_URL = "http://127.0.0.1:8000"; // Use IP instead of 'localhost'
+
 export async function getPosts() {
-  const res = await fetch(`${API_URL}/posts/`, { 
-    next: { revalidate: 60 } // Automatically refreshes the data every 60 seconds
-  });
-  
-  if (!res.ok) {
-    throw new Error('Failed to fetch posts');
+  try {
+    const res = await fetch(`${BASE_URL}/api/posts/`, { 
+      next: { revalidate: 60 } 
+    });
+
+    if (!res.ok) {
+      // Log more detail to help debug
+      console.error(`Backend returned status: ${res.status}`);
+      throw new Error('Failed to fetch posts');
+    }
+    return res.json();
+  } catch (error) {
+    // This catches ECONNREFUSED and network errors
+    console.error("Fetch failed:", error.message);
+    throw error;
   }
-  return res.json();
 }
 
 // src/lib/api.js
-const BASE_URL = "http://127.0.0.1:8000";
+// const BASE_URL = "http://27.0.0.1:8000";
 
 export async function getPostBySlug(slug) {
   try {
