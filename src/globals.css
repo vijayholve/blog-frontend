@@ -1,0 +1,46 @@
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;       /* Black Text */
+  --background-start-rgb: 255, 255, 255; /* White BG */
+  --primary-accent: 37, 99, 235;   /* Professional Blue */
+}
+
+/* Base styles for the whole site */
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+  font-family: 'Inter', sans-serif; /* Modern clean font */
+}
+
+@layer components {
+  .section-container {
+    @apply max-w-5xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+}
+
+.prose figure.image {
+  @apply my-8 mx-auto flex flex-col items-center;
+}
+
+.prose figure.image img {
+  @apply rounded-xl shadow-lg h-auto;
+}
+
+.prose figure.image_resized {
+  @apply mx-auto; /* Centers resized images */
+}
+
+.prose figcaption {
+  @apply text-center text-sm text-gray-500 mt-2 italic;
+}
+
+.prose img {
+  width: 100%;
+  height: auto;
+  margin: 2rem 0;
+  border-radius: 1rem;
+}
