@@ -5,15 +5,10 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/**
- * Generates SEO metadata dynamically for search engines
- */
 export async function generateMetadata({ params }) {
   const resolvedParams = await params;
   const post = await getPostBySlug(resolvedParams.slug);
-
   if (!post) return { title: "Post Not Found" };
-
   return {
     title: `${post.title} | MyBlog`,
     description: post.excerpt,
@@ -21,128 +16,113 @@ export async function generateMetadata({ params }) {
 }
 
 export default async function BlogPost({ params }) {
-  // Await params as required in Next.js 15+
   const resolvedParams = await params;
   const { slug } = resolvedParams;
-
   const post = await getPostBySlug(slug);
 
-  // Trigger 404 if post doesn't exist
   if (!post) notFound();
 
-  /**
-   * FIX: Relative image paths
-   * Ensures images from the Django backend load correctly.
-   */
+  // Ensures images from the Django media folder load correctly
   const fixedContent = post.content.replaceAll(
     'src="/media/',
     'src="http://127.0.0.1:8000/media/'
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 selection:bg-blue-100">
-      {/* Animated Background Gradients */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div className="absolute top-1/2 left-1/2 w-96 h-96 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
+    <div className="min-h-screen bg-dark">
+      {/* Dynamic Ambient Background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <div className="absolute -top-24 -right-24 w-[500px] h-[500px] bg-blue-100/50 rounded-full blur-[120px] animate-pulse"></div>
+        <div className="absolute top-1/2 -left-24 w-[400px] h-[400px] bg-indigo-100/50 rounded-full blur-[100px]"></div>
       </div>
 
-      <article className="relative">
-        {/* Navigation Bar */}
-        <div className="max-w-5xl mx-auto pt-8 pb-4 px-4 font-sans">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-all group font-medium"
-          >
-            <svg className="w-5 h-5 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+      <article className="relative w-full">
+        {/* Minimal Floating Navigation */}
+        <nav className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-white/70 backdrop-blur-md border border-white/20 px-6 py-3 rounded-full shadow-lg">
+          <Link href="/" className="flex items-center gap-2 text-slate-800 font-bold text-sm group">
+            <svg className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            <span>Back to all posts</span>
+            Back to Feed
           </Link>
-        </div>
+        </nav>
 
-        {/* Hero Header Section */}
-        <div className="max-w-5xl mx-auto py-8 md:py-16 px-4 font-sans">
-          <header className="text-center animate-fade-in">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-sm border border-slate-100 text-slate-600 text-sm font-semibold mb-8 uppercase tracking-widest">
-              <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-              </svg>
-              {new Date(post.created_at).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </div>
+        {/* Hero Section: Centered & Clean */}
+        <header className="pt-32 pb-16 px-6 max-w-5xl mx-auto text-center">
+          <div className="inline-block px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-8">
+            Published {new Date(post.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+          </div>
+          
+          <h1 className="text-6xl md:text-8xl font-black tracking-tight text-slate-900 mb-8 leading-[1.05]">
+            {post.title}
+          </h1>
 
-            <h1 className="text-5xl md:text-7xl font-black tracking-tight mb-8 bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent leading-[1.1]">
-              {post.title}
-            </h1>
-
-            {post.excerpt && (
-              <p className="text-xl md:text-2xl text-slate-600 italic leading-relaxed max-w-3xl mx-auto font-light">
-                {post.excerpt}
-              </p>
-            )}
-          </header>
-
-          {post.cover_image && (
-            <div className="mt-16 group animate-slide-up">
-              <div className="relative rounded-3xl overflow-hidden shadow-2xl transform transition-all duration-500 group-hover:scale-[1.01]">
-                <img src={post.cover_image} alt={post.title} className="w-full h-auto object-cover max-h-[700px]" />
-                <div className="absolute inset-0 border-4 border-white/10 rounded-3xl pointer-events-none"></div>
-              </div>
-            </div>
+          {post.excerpt && (
+            <p className="text-xl md:text-2xl text-slate-500 max-w-3xl mx-auto font-medium leading-relaxed">
+              {post.excerpt}
+            </p>
           )}
-        </div>
+        </header>
 
-        {/* Content Body */}
-        <div className="max-w-4xl mx-auto pb-24 px-4">
-          <div className="bg-white/90 backdrop-blur-md rounded-[2.5rem] shadow-xl border border-white/20 p-8 md:p-16 lg:p-20">
+        {/* Featured Cover: Edge-to-Edge feel */}
+        {post.cover_image && (
+          <div className="max-w-7xl mx-auto px-6 mb-20">
+            <div className="relative aspect-[21/9] rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white">
+              <img src={post.cover_image} alt={post.title} className="w-full h-full object-cover" />
+            </div>
+          </div>
+        )}
+
+        {/* Content Container */}
+        <div className={`mx-auto ${post.is_html ? 'w-full px-0' : 'max-w-4xl px-6'} pb-32`}>
+          <div className={`${post.is_html ? 'bg-transparent' : 'bg-white shadow-2xl rounded-[3rem] p-8 md:p-20 border border-slate-100'}`}>
             
-            {/* CONDITIONAL RENDERING:
-              If post.is_html is true, we render raw content from Gemini.
-              Otherwise, we render standard Markdown with typography styles.
-            */}
             {post.is_html ? (
+              /* --- AI GENERATED HTML MODE (Full Screen Power) --- */
               <div 
-                className="gemini-html-content"
+                className="w-full min-h-screen"
                 dangerouslySetInnerHTML={{ __html: fixedContent }} 
               />
             ) : (
+              /* --- STANDARD BLOG MODE (Readability Focused) --- */
               <div className="prose prose-slate prose-xl max-w-none 
-                prose-headings:text-slate-900 prose-headings:font-extrabold
-                prose-h1:text-6xl prose-h1:font-black prose-h1:mb-10 prose-h1:mt-16 first:prose-h1:mt-0
-                prose-h2:text-5xl prose-h2:font-bold prose-h2:mt-16 prose-h2:mb-8
-                prose-h3:text-4xl prose-h3:font-bold prose-h3:mt-12 prose-h3:mb-6
-                prose-p:text-slate-700 prose-p:text-xl prose-p:leading-relaxed prose-p:mb-6
-                prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-                prose-strong:text-slate-900 prose-img:rounded-2xl prose-img:shadow-2xl
-                prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:rounded-r-xl
-                prose-code:text-blue-600 prose-code:bg-blue-50 prose-pre:bg-slate-900 prose-pre:rounded-xl"
-              >
+                prose-headings:text-slate-900 prose-headings:font-black
+                prose-h1:text-6xl prose-h2:text-5xl prose-h3:text-4xl
+                prose-p:text-slate-600 prose-p:leading-[1.8]
+                prose-a:text-blue-600 prose-strong:text-slate-900
+                prose-blockquote:border-l-8 prose-blockquote:border-blue-600 prose-blockquote:bg-slate-50
+                prose-img:rounded-[2rem] prose-img:shadow-2xl">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {fixedContent}
                 </ReactMarkdown>
               </div>
             )}
 
-            {/* Author Attribution Footer */}
-            <div className="mt-20 pt-10 border-t border-slate-100 flex items-center justify-between font-sans">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold">
-                  VK
+            {/* Author Section (Only show for standard posts or add to HTML) */}
+            {!post.is_html && (
+              <div className="mt-24 pt-12 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-8">
+                <div className="flex items-center gap-6">
+                  <div className="w-20 h-20 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-3xl rotate-3 flex items-center justify-center text-white text-3xl font-black shadow-xl">
+                    VK
+                  </div>
+                  <div>
+                    <h4 className="text-2xl font-bold text-slate-900">Vijay Kumar</h4>
+                    <p className="text-slate-500">Software Architect & Tech Strategist</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-slate-900 font-bold">Vijay Kumar</p>
-                  <p className="text-slate-500 text-sm">Author & Developer</p>
-                </div>
+                <Link href="/" className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-blue-600 transition-colors shadow-lg">
+                  More Stories
+                </Link>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </article>
+      
+      {/* Footer Branding */}
+      <footer className="py-12 text-center border-t border-slate-200 bg-white">
+        <p className="text-slate-400 font-medium">© 2026 Vijay Kumar Archive. Built with Gemini & Next.js</p>
+      </footer>
     </div>
   );
 }
