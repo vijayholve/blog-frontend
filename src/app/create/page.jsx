@@ -13,7 +13,7 @@ export default function CreatePost() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fullscreenTab, setFullscreenTab] = useState('prompt'); // 'prompt', 'preview', 'code'
+  const [fullscreenTab, setFullscreenTab] = useState("prompt"); // 'prompt', 'preview', 'code'
   const router = useRouter();
 
   // Call the AI Agent
@@ -80,42 +80,52 @@ export default function CreatePost() {
           {/* Fullscreen Header */}
           <div className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button 
+              <button
                 onClick={() => setIsFullscreen(false)}
                 className="text-slate-400 hover:text-white transition flex items-center gap-2"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
                 </svg>
                 Back
               </button>
               <div className="flex gap-2">
-                <button 
-                  onClick={() => setFullscreenTab('prompt')}
+                <button
+                  onClick={() => setFullscreenTab("prompt")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    fullscreenTab === 'prompt' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-slate-400 hover:text-white'
+                    fullscreenTab === "prompt"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-400 hover:text-white"
                   }`}
                 >
                   AI Prompt
                 </button>
-                <button 
-                  onClick={() => setFullscreenTab('preview')}
+                <button
+                  onClick={() => setFullscreenTab("preview")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    fullscreenTab === 'preview' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-slate-400 hover:text-white'
+                    fullscreenTab === "preview"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-400 hover:text-white"
                   }`}
                 >
                   Live Output
                 </button>
-                <button 
-                  onClick={() => setFullscreenTab('code')}
+                <button
+                  onClick={() => setFullscreenTab("code")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    fullscreenTab === 'code' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-slate-400 hover:text-white'
+                    fullscreenTab === "code"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-400 hover:text-white"
                   }`}
                 >
                   HTML Source
@@ -126,9 +136,11 @@ export default function CreatePost() {
 
           {/* Fullscreen Content */}
           <div className="flex-1 overflow-auto">
-            {fullscreenTab === 'prompt' && (
+            {fullscreenTab === "prompt" && (
               <div className="max-w-4xl mx-auto p-8">
-                <h2 className="text-2xl font-bold text-white mb-4">AI Agent Prompt</h2>
+                <h2 className="text-2xl font-bold text-white mb-4">
+                  AI Agent Prompt
+                </h2>
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
@@ -140,18 +152,18 @@ export default function CreatePost() {
                   disabled={isGenerating}
                   className="mt-4 w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition disabled:opacity-50"
                 >
-                  {isGenerating ? 'AI is Coding...' : 'Generate with Gemini'}
+                  {isGenerating ? "AI is Coding..." : "Generate with Gemini"}
                 </button>
               </div>
             )}
 
-            {fullscreenTab === 'preview' && (
+            {fullscreenTab === "preview" && (
               <div className="h-full bg-white p-8 overflow-auto">
                 <div dangerouslySetInnerHTML={{ __html: content }} />
               </div>
             )}
 
-            {fullscreenTab === 'code' && (
+            {fullscreenTab === "code" && (
               <div className="h-full">
                 <textarea
                   className="w-full h-full p-8 bg-slate-900 text-blue-300 font-mono text-sm outline-none resize-none leading-relaxed"
@@ -223,12 +235,22 @@ export default function CreatePost() {
               <button
                 onClick={() => {
                   setIsFullscreen(true);
-                  setFullscreenTab('preview');
+                  setFullscreenTab("preview");
                 }}
                 className="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center gap-2 transition"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                  />
                 </svg>
                 Fullscreen
               </button>
