@@ -74,7 +74,7 @@ export default async function BlogPost({ params }) {
         )}
 
         {/* Content Container */}
-        <div className={`mx-auto ${post.is_html ? 'w-full px-0' : 'max-w-4xl px-6'} pb-32`}>
+        <div className={`mx-auto ${post.is_html ? 'w-full px-0' : 'max-w-4xl px-6'} `}>
           <div className={`${post.is_html ? 'bg-transparent' : 'bg-white shadow-2xl rounded-[3rem] p-8 md:p-20 border border-slate-100'}`}>
             
             {post.is_html ? (
@@ -120,9 +120,7 @@ export default async function BlogPost({ params }) {
       </article>
       
       {/* Footer Branding */}
-      <footer className="py-12 text-center border-t border-slate-200 bg-white">
-        <p className="text-slate-400 font-medium">© 2026 Vijay Kumar Archive. Built with Gemini & Next.js</p>
-      </footer>
+      
     </div>
   );
 }

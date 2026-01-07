@@ -16,9 +16,7 @@ export default function RootLayout({ children }) {
         <main className="min-h-screen">
           {children}
         </main>
-        <footer className="border-t py-8 text-center text-gray-500">
-          © 2026 My SEO Blog. Powered by Next.js & DRF.
-        </footer>
+    
       </body>
     </html>
   );
