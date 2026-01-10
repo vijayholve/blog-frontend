@@ -1,31 +1,97 @@
 // src/app/create/page.jsx
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import HtmlBlogEditor from "@/components/HtmlBlogEditor";
+import PromptExamples from "@/components/PromptExamples";
 import { generateAIContent } from "@/lib/api";
+import { getAuthToken } from "@/lib/authApi";
 
 export default function CreatePost() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [excerpt, setExcerpt] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenTab, setFullscreenTab] = useState("prompt"); // 'prompt', 'preview', 'code'
+  const [showExamples, setShowExamples] = useState(false);
   const router = useRouter();
+
+  // Check authentication and load data
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      router.push("/auth/login");
+    } else {
+      fetchCategories();
+      fetchTags();
+    }
+  }, []);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/categories/");
+      const data = await res.json();
+      setCategories(data);
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    }
+  };
+
+  const fetchTags = async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/tags/");
+      const data = await res.json();
+      setTags(data);
+    } catch (err) {
+      console.error("Error fetching tags:", err);
+    }
+  };
+
+  const toggleTag = (tagId) => {
+    setSelectedTags((prev) =>
+      prev.includes(tagId)
+        ? prev.filter((id) => id !== tagId)
+        : [...prev, tagId]
+    );
+  };
+
+  const handleSelectPrompt = (prompt) => {
+    setAiPrompt(prompt);
+    setShowExamples(false);
+  };
 
   // Call the AI Agent
   const handleAIGenerate = async () => {
+    if (!aiPrompt.trim()) {
+      alert("Please enter a prompt for the AI");
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+      alert("You must be logged in to use AI generation");
+      router.push('/auth/login');
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const res = await fetch(
         "http://127.0.0.1:8000/api/generate-ai-content/",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requirement: aiPrompt }), // Send 'requirement'
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Token ${token}`
+          },
+          body: JSON.stringify({ requirement: aiPrompt }),
         }
       );
       const data = await res.json();
@@ -33,9 +99,12 @@ export default function CreatePost() {
         setTitle(data.title || "");
         setExcerpt(data.excerpt || "");
         setContent(data.generated_code || "");
+      } else {
+        alert("AI generation failed. Please try again.");
       }
     } catch (err) {
       console.error("AI Generation Error:", err);
+      alert("Error connecting to AI service.");
     } finally {
       setIsGenerating(false);
     }
@@ -43,6 +112,29 @@ export default function CreatePost() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!title || !content || !excerpt) {
+      alert("Please fill in title, excerpt, and content");
+      return;
+    }
+
+    if (!selectedCategory) {
+      alert("Please select a category for your post");
+      return;
+    }
+
+    if (selectedTags.length === 0) {
+      alert("Please select at least one tag for your post");
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+      alert("You must be logged in to create a post");
+      router.push("/auth/login");
+      return;
+    }
+
     setIsPublishing(true);
 
     // Ensure is_html is set to true for Gemini content
@@ -51,22 +143,33 @@ export default function CreatePost() {
       content,
       excerpt,
       is_html: true,
-      is_published: true,
+      status: "published",
+      category_id: parseInt(selectedCategory),
+      tag_ids: selectedTags,
     };
 
     try {
       const res = await fetch("http://127.0.0.1:8000/api/posts/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Token ${token}`,
+        },
         body: JSON.stringify(postData),
       });
 
       if (res.ok) {
+        alert("Post published successfully!");
         router.push("/");
         router.refresh();
       } else {
-        alert("Something went wrong with publishing!");
+        const errorData = await res.json();
+        console.error("Publish error:", errorData);
+        alert("Failed to publish. Please check all fields.");
       }
+    } catch (err) {
+      console.error("Error:", err);
+      alert("Error publishing post");
     } finally {
       setIsPublishing(false);
     }
@@ -138,14 +241,29 @@ export default function CreatePost() {
           <div className="flex-1 overflow-auto">
             {fullscreenTab === "prompt" && (
               <div className="max-w-4xl mx-auto p-8">
-                <h2 className="text-2xl font-bold text-white mb-4">
-                  AI Agent Prompt
-                </h2>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-white">
+                    AI Content Generator
+                  </h2>
+                  <button
+                    onClick={() => setShowExamples(!showExamples)}
+                    className="text-sm text-blue-300 hover:text-blue-200 transition"
+                  >
+                    {showExamples ? "Hide Examples" : "Show Examples"}
+                  </button>
+                </div>
+
+                {showExamples && (
+                  <div className="mb-6 bg-slate-800 rounded-xl p-6 border border-slate-700">
+                    <PromptExamples onSelectPrompt={handleSelectPrompt} />
+                  </div>
+                )}
+
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Ex: Create a blog about Space Travel with a blue theme and high contrast text..."
-                  className="w-full h-[calc(100vh-250px)] p-6 rounded-xl bg-slate-800 text-white border border-slate-700 focus:ring-2 focus:ring-blue-500 text-base"
+                  placeholder="Ex: Write a comprehensive guide about sustainable living practices in 2026..."
+                  className="w-full h-[calc(100vh-350px)] p-6 rounded-xl bg-slate-800 text-white border border-slate-700 focus:ring-2 focus:ring-blue-500 text-base"
                 />
                 <button
                   onClick={handleAIGenerate}
@@ -177,7 +295,7 @@ export default function CreatePost() {
         </div>
       )}
 
-      <nav className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur-md px-6 h-16 flex items-center justify-between">
+      <nav className="sticky top-0 z-50 border-b  px-6 h-16 flex items-center justify-between">
         <span className="font-bold text-slate-400 uppercase tracking-widest text-xs">
           AI Blog Architect
         </span>
@@ -195,19 +313,34 @@ export default function CreatePost() {
           {/* Sidebar: AI Controls */}
           <aside className="space-y-6">
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-900 mb-4">AI Agent Prompt</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900">🤖 AI Generator</h3>
+                <button
+                  onClick={() => setShowExamples(!showExamples)}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  {showExamples ? "▲" : "▼"} Examples
+                </button>
+              </div>
+
+              {showExamples && (
+                <div className="mb-4 max-h-64 overflow-y-auto">
+                  <PromptExamples onSelectPrompt={handleSelectPrompt} />
+                </div>
+              )}
+
               <textarea
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="Ex: Create a blog about Space Travel with a blue theme and high contrast text..."
-                className="text-black w-full h-32 p-4 rounded-xl  border-none focus:ring-2 focus:ring-blue-500 text-sm mb-4"
+                placeholder="Describe your blog topic in detail..."
+                className="text-black w-full h-32 p-4 rounded-xl border-none focus:ring-2 focus:ring-blue-500 text-sm mb-4 bg-slate-50"
               />
               <button
                 onClick={handleAIGenerate}
                 disabled={isGenerating}
-                className=" w-full py-3 bg-slate-900 y   rounded-xl font-bold hover:bg-blue-600 transition disabled:opacity-50"
+                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:from-blue-700 hover:to-indigo-700 transition disabled:opacity-50"
               >
-                {isGenerating ? "AI is Coding..." : "Generate with Gemini"}
+                {isGenerating ? "⏳ Generating..." : "✨ Generate with AI"}
               </button>
             </div>
 
@@ -222,10 +355,58 @@ export default function CreatePost() {
               />
               <textarea
                 placeholder="SEO Excerpt"
-                className="text-black w-full p-3 rounded-lg bg-slate-50 border-none h-24"
+                className="text-black w-full p-3 rounded-lg bg-slate-50 border-none h-24 mb-4"
                 value={excerpt}
                 onChange={(e) => setExcerpt(e.target.value)}
               />
+
+              {/* Category Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Category
+                </label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full p-3 rounded-lg bg-slate-50 border-none text-slate-900"
+                >
+                  <option value="">Select a category...</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Tags Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Tags
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {tags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => toggleTag(tag.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                        selectedTags.includes(tag.id)
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      {tag.name}
+                    </button>
+                  ))}
+                </div>
+                {selectedTags.length > 0 && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    {selectedTags.length} tag
+                    {selectedTags.length !== 1 ? "s" : ""} selected
+                  </p>
+                )}
+              </div>
             </div>
           </aside>
 
