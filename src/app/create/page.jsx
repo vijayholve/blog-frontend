@@ -77,7 +77,7 @@ export default function CreatePost() {
     const token = getAuthToken();
     if (!token) {
       alert("You must be logged in to use AI generation");
-      router.push('/auth/login');
+      router.push("/auth/login");
       return;
     }
 
@@ -87,9 +87,9 @@ export default function CreatePost() {
         "http://127.0.0.1:8000/api/generate-ai-content/",
         {
           method: "POST",
-          headers: { 
+          headers: {
             "Content-Type": "application/json",
-            "Authorization": `Token ${token}`
+            Authorization: `Token ${token}`,
           },
           body: JSON.stringify({ requirement: aiPrompt }),
         }
