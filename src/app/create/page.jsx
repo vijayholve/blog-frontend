@@ -21,6 +21,10 @@ export default function CreatePost() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenTab, setFullscreenTab] = useState("prompt"); // 'prompt', 'preview', 'code'
   const [showExamples, setShowExamples] = useState(false);
+  const [wantGraphical, setWantGraphical] = useState(false);
+  const [graphicalPrompt, setGraphicalPrompt] = useState("");
+  const [graphicalContent, setGraphicalContent] = useState("");
+  const [isGeneratingGraphical, setIsGeneratingGraphical] = useState(false);
   const router = useRouter();
 
   // Check authentication and load data
@@ -58,7 +62,7 @@ export default function CreatePost() {
     setSelectedTags((prev) =>
       prev.includes(tagId)
         ? prev.filter((id) => id !== tagId)
-        : [...prev, tagId]
+        : [...prev, tagId],
     );
   };
 
@@ -92,7 +96,7 @@ export default function CreatePost() {
             Authorization: `Token ${token}`,
           },
           body: JSON.stringify({ requirement: aiPrompt }),
-        }
+        },
       );
       const data = await res.json();
       if (res.ok) {
@@ -100,13 +104,68 @@ export default function CreatePost() {
         setExcerpt(data.excerpt || "");
         setContent(data.generated_code || "");
       } else {
-        alert("AI generation failed. Please try again.");
+        if (res.status === 429) {
+          const retryMsg = data.retry_after_seconds
+            ? ` Please retry in ${data.retry_after_seconds} seconds.`
+            : "";
+          alert(`AI quota exceeded.${retryMsg}`);
+        } else {
+          alert(data.error || "AI generation failed. Please try again.");
+        }
       }
     } catch (err) {
       console.error("AI Generation Error:", err);
       alert("Error connecting to AI service.");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // Call the AI Agent for Graphical Explanation
+  const handleGraphicalGenerate = async () => {
+    if (!graphicalPrompt.trim()) {
+      alert("Please enter a description for the graphical explanation");
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) {
+      alert("You must be logged in to use AI generation");
+      router.push("/auth/login");
+      return;
+    }
+
+    setIsGeneratingGraphical(true);
+    try {
+      const res = await fetch(
+        "http://127.0.0.1:8000/api/generate-graphical-content/",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Token ${token}`,
+          },
+          body: JSON.stringify({ requirement: graphicalPrompt }),
+        },
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setGraphicalContent(data.generated_code || "");
+      } else {
+        if (res.status === 429) {
+          const retryMsg = data.retry_after_seconds
+            ? ` Please retry in ${data.retry_after_seconds} seconds.`
+            : "";
+          alert(`AI quota exceeded.${retryMsg}`);
+        } else {
+          alert(data.error || "Graphical generation failed. Please try again.");
+        }
+      }
+    } catch (err) {
+      console.error("Graphical Generation Error:", err);
+      alert("Error connecting to AI service.");
+    } finally {
+      setIsGeneratingGraphical(false);
     }
   };
 
@@ -146,6 +205,7 @@ export default function CreatePost() {
       status: "published",
       category_id: parseInt(selectedCategory),
       tag_ids: selectedTags,
+      graphical_content: graphicalContent || "",
     };
 
     try {
@@ -233,6 +293,18 @@ export default function CreatePost() {
                 >
                   HTML Source
                 </button>
+                {wantGraphical && (
+                  <button
+                    onClick={() => setFullscreenTab("graphical")}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                      fullscreenTab === "graphical"
+                        ? "bg-purple-600 text-white"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    📊 Infographic
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -270,7 +342,7 @@ export default function CreatePost() {
                   disabled={isGenerating}
                   className="mt-4 w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition disabled:opacity-50"
                 >
-                  {isGenerating ? "AI is Coding..." : "Generate with Gemini"}
+                  {isGenerating ? "AI is Coding..." : "Generate with AI"}
                 </button>
               </div>
             )}
@@ -289,6 +361,54 @@ export default function CreatePost() {
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="<div class='bg-blue-500 p-10'>...</div>"
                 />
+              </div>
+            )}
+
+            {fullscreenTab === "graphical" && (
+              <div className="h-full flex flex-col">
+                {graphicalContent ? (
+                  <>
+                    {/* Split view: Preview on top, Code below */}
+                    <div className="flex-1 overflow-auto bg-white p-8">
+                      <div
+                        dangerouslySetInnerHTML={{ __html: graphicalContent }}
+                      />
+                    </div>
+                    <div className="h-[300px] border-t border-slate-700 flex flex-col">
+                      <div className="bg-slate-800 px-4 py-2 flex items-center justify-between border-b border-slate-700">
+                        <span className="text-xs font-medium text-purple-400">
+                          {"</>"} Graphical Source Code
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(graphicalContent);
+                            alert("Copied!");
+                          }}
+                          className="text-xs text-slate-400 hover:text-white transition px-2 py-1 rounded hover:bg-slate-700"
+                        >
+                          📋 Copy
+                        </button>
+                      </div>
+                      <textarea
+                        className="flex-1 w-full p-4 bg-slate-900 text-purple-300 font-mono text-sm outline-none resize-none leading-relaxed"
+                        value={graphicalContent}
+                        onChange={(e) => setGraphicalContent(e.target.value)}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <span className="text-6xl mb-4 block">📊</span>
+                      <p className="text-slate-400 text-lg">
+                        No infographic generated yet.
+                      </p>
+                      <p className="text-slate-300 text-sm mt-2">
+                        Enable the checkbox in the sidebar and generate one.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -342,6 +462,49 @@ export default function CreatePost() {
               >
                 {isGenerating ? "⏳ Generating..." : "✨ Generate with AI"}
               </button>
+            </div>
+
+            {/* Graphical Explanation Toggle */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+              <label className="flex items-center gap-3 cursor-pointer mb-4">
+                <input
+                  type="checkbox"
+                  checked={wantGraphical}
+                  onChange={(e) => {
+                    setWantGraphical(e.target.checked);
+                    if (!e.target.checked) setGraphicalContent("");
+                  }}
+                  className="w-5 h-5 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="font-bold text-slate-900 text-sm">
+                    📊 Graphical Explanation
+                  </span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Generate infographics, charts & visual diagrams
+                  </p>
+                </div>
+              </label>
+
+              {wantGraphical && (
+                <div className="space-y-3">
+                  <textarea
+                    value={graphicalPrompt}
+                    onChange={(e) => setGraphicalPrompt(e.target.value)}
+                    placeholder="Describe what visual explanation you need... e.g. 'Show a comparison chart of React vs Vue vs Angular performance metrics'"
+                    className="text-black w-full h-28 p-4 rounded-xl border-none focus:ring-2 focus:ring-purple-500 text-sm bg-slate-50"
+                  />
+                  <button
+                    onClick={handleGraphicalGenerate}
+                    disabled={isGeneratingGraphical}
+                    className="w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:from-purple-700 hover:to-pink-700 transition disabled:opacity-50"
+                  >
+                    {isGeneratingGraphical
+                      ? "⏳ Generating Graphic..."
+                      : "📊 Generate Infographic"}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
@@ -411,32 +574,131 @@ export default function CreatePost() {
           </aside>
 
           {/* Main: HTML Editor & Preview */}
-          <div className="lg:col-span-2">
-            <div className="mb-4 flex justify-end">
-              <button
-                onClick={() => {
-                  setIsFullscreen(true);
-                  setFullscreenTab("preview");
-                }}
-                className="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center gap-2 transition"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+          <div className="lg:col-span-2 space-y-8">
+            {/* Blog Content Section */}
+            <div>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                  <span className="text-lg">📝</span> Blog Content
+                </h3>
+                <button
+                  onClick={() => {
+                    setIsFullscreen(true);
+                    setFullscreenTab("preview");
+                  }}
+                  className="text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center gap-2 transition"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-                  />
-                </svg>
-                Fullscreen
-              </button>
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                    />
+                  </svg>
+                  Fullscreen
+                </button>
+              </div>
+              <HtmlBlogEditor value={content} onChange={setContent} />
             </div>
-            <HtmlBlogEditor value={content} onChange={setContent} />
+
+            {/* Graphical Explanation Section — always visible when checkbox is on */}
+            {wantGraphical && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                    <span className="text-lg">📊</span> Graphical Explanation
+                  </h3>
+                  {graphicalContent && (
+                    <button
+                      onClick={() => {
+                        setIsFullscreen(true);
+                        setFullscreenTab("graphical");
+                      }}
+                      className="text-purple-600 hover:text-purple-800 text-sm font-medium flex items-center gap-1 transition"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                        />
+                      </svg>
+                      Fullscreen
+                    </button>
+                  )}
+                </div>
+
+                {graphicalContent ? (
+                  <div className="space-y-4">
+                    {/* Graphical Live Preview */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
+                      <div className="bg-purple-50 border-b border-purple-100 px-4 py-2 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                          <span className="text-xs font-medium text-purple-700">
+                            Live Infographic Preview
+                          </span>
+                        </div>
+                      </div>
+                      <div className="p-6 overflow-auto max-h-[600px]">
+                        <div
+                          dangerouslySetInnerHTML={{ __html: graphicalContent }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Graphical HTML Source Code */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
+                      <div className="bg-slate-900 border-b border-slate-700 px-4 py-2 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-purple-400">
+                            {"</>"} Graphical Source Code
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(graphicalContent);
+                            alert("Graphical code copied to clipboard!");
+                          }}
+                          className="text-xs text-slate-400 hover:text-white transition px-2 py-1 rounded hover:bg-slate-700"
+                        >
+                          📋 Copy
+                        </button>
+                      </div>
+                      <textarea
+                        className="w-full p-6 bg-slate-900 text-purple-300 font-mono text-sm outline-none resize-none leading-relaxed min-h-[300px]"
+                        value={graphicalContent}
+                        onChange={(e) => setGraphicalContent(e.target.value)}
+                        placeholder="Graphical HTML will appear here..."
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl shadow-sm border border-dashed border-purple-300 p-12 text-center">
+                    <span className="text-5xl mb-3 block">📊</span>
+                    <p className="text-slate-500 font-medium">
+                      No infographic generated yet
+                    </p>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Enter a description in the sidebar and click "Generate
+                      Infographic"
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>
