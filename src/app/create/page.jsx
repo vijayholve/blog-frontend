@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import HtmlBlogEditor from "@/components/HtmlBlogEditor";
 import PromptExamples from "@/components/PromptExamples";
+import GraphicalExamples from "@/components/GraphicalExamples";
 import { generateAIContent } from "@/lib/api";
 import { getAuthToken } from "@/lib/authApi";
 
@@ -25,6 +26,7 @@ export default function CreatePost() {
   const [graphicalPrompt, setGraphicalPrompt] = useState("");
   const [graphicalContent, setGraphicalContent] = useState("");
   const [isGeneratingGraphical, setIsGeneratingGraphical] = useState(false);
+  const [showGraphicalExamples, setShowGraphicalExamples] = useState(false);
   const router = useRouter();
 
   // ── Fullscreen AI Refine state ──
@@ -59,6 +61,11 @@ export default function CreatePost() {
       label: "🔤 Grammar Fix",
       bg: "linear-gradient(135deg, #06b6d4, #3b82f6)",
     },
+    {
+      key: "change",
+      label: "🔄 Change",
+      bg: "linear-gradient(135deg, #f59e0b, #d97706)",
+    },
   ];
   const [fsSelectedText, setFsSelectedText] = useState("");
   const [fsSelStart, setFsSelStart] = useState(0);
@@ -68,7 +75,65 @@ export default function CreatePost() {
   const [fsIsRefining, setFsIsRefining] = useState(false);
   const [fsActiveCmd, setFsActiveCmd] = useState("");
   const [fsPanelOpen, setFsPanelOpen] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const fsCodeRef = useRef(null);
+  const fsPreviewIframeRef = useRef(null);
+  const graphicalIframeRef = useRef(null);
+  const graphicalFsIframeRef = useRef(null);
+  const sidebarGraphicalIframeRef = useRef(null);
+
+  // Helper to attach mouseup listener inside an iframe document
+  const attachFsIframeMouseup = useCallback((iframe) => {
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc || !doc.body) return;
+      if (doc.__mouseupAttached) return;
+      doc.__mouseupAttached = true;
+      doc.addEventListener("mouseup", () => {
+        const sel = iframe.contentWindow.getSelection();
+        if (!sel || sel.isCollapsed) return;
+        const text = sel.toString().trim();
+        if (text && text.length > 2) {
+          setFsSelectedText(text);
+          setFsSelSource("preview");
+          setFsRefinedText("");
+          setFsPanelOpen(true);
+        }
+      });
+    } catch (e) {
+      // cross-origin guard
+    }
+  }, []);
+
+  // Attach mouseup listener inside the fullscreen preview iframe for text selection
+  useEffect(() => {
+    if (fullscreenTab !== "preview") return;
+    const iframeEl = fsPreviewIframeRef.current;
+
+    // Small delay to let React render the iframe element first
+    const timer = setTimeout(() => {
+      const iframe = fsPreviewIframeRef.current;
+      if (!iframe) return;
+
+      const onLoad = () => attachFsIframeMouseup(iframe);
+      iframe.addEventListener("load", onLoad);
+
+      // Also try immediately in case iframe already loaded
+      if (iframe.contentDocument?.body) {
+        attachFsIframeMouseup(iframe);
+      }
+
+      // Store cleanup ref
+      iframe.__cleanupLoad = onLoad;
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      if (iframeEl && iframeEl.__cleanupLoad) {
+        iframeEl.removeEventListener("load", iframeEl.__cleanupLoad);
+      }
+    };
+  }, [content, fullscreenTab, attachFsIframeMouseup]);
 
   const handleFsCodeSelect = useCallback(() => {
     const ta = fsCodeRef.current;
@@ -84,20 +149,17 @@ export default function CreatePost() {
     }
   }, [content]);
 
-  const handleFsPreviewSelect = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) return;
-    const text = sel.toString().trim();
-    if (text && text.length > 2) {
-      setFsSelectedText(text);
-      setFsSelSource("preview");
-      setFsRefinedText("");
-      setFsPanelOpen(true);
-    }
-  }, []);
+  // Fullscreen preview text selection is now handled via useEffect on the iframe's contentDocument
 
   const handleFsRefine = async (command) => {
     if (!fsSelectedText) return;
+
+    // "Change" = let user edit directly, no API call
+    if (command === "change") {
+      setFsRefinedText(fsSelectedText);
+      return;
+    }
+
     setFsIsRefining(true);
     setFsActiveCmd(command);
     setFsRefinedText("");
@@ -134,7 +196,70 @@ export default function CreatePost() {
           content.substring(fsSelEnd),
       );
     } else {
-      setContent(content.replace(fsSelectedText, fsRefinedText));
+      // Smart replace for preview selections
+      let newContent = content;
+      let matched = false;
+
+      // Strategy 1: Exact match
+      if (content.includes(fsSelectedText)) {
+        newContent = content.replace(fsSelectedText, fsRefinedText);
+        matched = true;
+      }
+
+      // Strategy 2: Normalized whitespace match
+      if (!matched) {
+        const normalizedSelected = fsSelectedText.replace(/\s+/g, " ").trim();
+        const escapedNorm = normalizedSelected.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        const wsFlexPattern = escapedNorm.split(" ").join("\\s+");
+        const wsRegex = new RegExp(wsFlexPattern, "s");
+        const wsMatch = content.match(wsRegex);
+        if (wsMatch) {
+          newContent = content.replace(wsMatch[0], fsRefinedText);
+          matched = true;
+        }
+      }
+
+      // Strategy 3: Allow HTML tags between words
+      if (!matched) {
+        const escaped = fsSelectedText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const flexPattern = escaped.split(/\s+/).join("\\s*(?:<[^>]*>\\s*)*");
+        const regex = new RegExp(flexPattern, "s");
+        const match = content.match(regex);
+        if (match) {
+          newContent = content.replace(match[0], fsRefinedText);
+          matched = true;
+        }
+      }
+
+      // Strategy 4: First-word...last-word loose match
+      if (!matched) {
+        const words = fsSelectedText.split(/\s+/);
+        if (words.length >= 2) {
+          const first = words[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const last = words[words.length - 1].replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
+          );
+          const looseRegex = new RegExp(first + "[\\s\\S]*?" + last, "s");
+          const looseMatch = content.match(looseRegex);
+          if (looseMatch && looseMatch[0].length < fsSelectedText.length * 3) {
+            newContent = content.replace(looseMatch[0], fsRefinedText);
+            matched = true;
+          }
+        }
+      }
+
+      if (!matched) {
+        alert(
+          "Could not locate the selected text in the HTML source. Try selecting from the code editor instead.",
+        );
+        return;
+      }
+
+      setContent(newContent);
     }
     setFsSelectedText("");
     setFsRefinedText("");
@@ -145,6 +270,48 @@ export default function CreatePost() {
     setFsSelectedText("");
     setFsRefinedText("");
     setFsPanelOpen(false);
+  };
+
+  // Enhance overall design of the blog HTML
+  const handleEnhanceDesign = async () => {
+    if (!content || content.trim().length < 50) {
+      alert("Generate some content first before enhancing the design.");
+      return;
+    }
+    const token = getAuthToken();
+    if (!token) {
+      alert("You must be logged in.");
+      return;
+    }
+    setIsEnhancing(true);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/enhance-design/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Token ${token}`,
+        },
+        body: JSON.stringify({ html_content: content }),
+      });
+      const data = await res.json();
+      if (res.ok && data.enhanced_code) {
+        setContent(data.enhanced_code);
+      } else {
+        if (res.status === 429) {
+          const retryMsg = data.retry_after_seconds
+            ? ` Retry in ${data.retry_after_seconds}s.`
+            : "";
+          alert(`Rate limited.${retryMsg}`);
+        } else {
+          alert(data.error || "Design enhancement failed.");
+        }
+      }
+    } catch (err) {
+      console.error("Enhance Error:", err);
+      alert("Error connecting to AI service.");
+    } finally {
+      setIsEnhancing(false);
+    }
   };
 
   // Check authentication and load data
@@ -202,6 +369,11 @@ export default function CreatePost() {
   const handleSelectPrompt = (prompt) => {
     setAiPrompt(prompt);
     setShowExamples(false);
+  };
+
+  const handleSelectGraphicalPrompt = (prompt) => {
+    setGraphicalPrompt(prompt);
+    setShowGraphicalExamples(false);
   };
 
   // Call the AI Agent
@@ -320,6 +492,11 @@ export default function CreatePost() {
       return;
     }
 
+    if (!excerpt.trim()) {
+      alert("Excerpt is required. Add a short summary for your post.");
+      return;
+    }
+
     const token = getAuthToken();
     if (!token) {
       alert("You must be logged in to create a post");
@@ -358,7 +535,13 @@ export default function CreatePost() {
       } else {
         const errorData = await res.json();
         console.error("Publish error:", errorData);
-        alert("Failed to publish. Please check all fields.");
+        const fieldErrors = Object.entries(errorData)
+          .map(
+            ([field, msgs]) =>
+              `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`,
+          )
+          .join("\n");
+        alert(`Failed to publish:\n${fieldErrors}`);
       }
     } catch (err) {
       console.error("Error:", err);
@@ -440,6 +623,26 @@ export default function CreatePost() {
                 )}
               </div>
             </div>
+            {/* Enhance Design Button in Fullscreen */}
+            {content && content.trim().length > 50 && (
+              <button
+                onClick={handleEnhanceDesign}
+                disabled={isEnhancing}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-all hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
+                }}
+              >
+                {isEnhancing ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Enhancing…
+                  </>
+                ) : (
+                  <>🎨 Enhance Design</>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Fullscreen Content */}
@@ -451,18 +654,12 @@ export default function CreatePost() {
                     AI Content Generator
                   </h2>
                   <button
-                    onClick={() => setShowExamples(!showExamples)}
+                    onClick={() => setShowExamples(true)}
                     className="text-sm text-blue-300 hover:text-blue-200 transition"
                   >
-                    {showExamples ? "Hide Examples" : "Show Examples"}
+                    📚 Browse Prompts
                   </button>
                 </div>
-
-                {showExamples && (
-                  <div className="mb-6 bg-slate-800 rounded-xl p-6 border border-slate-700">
-                    <PromptExamples onSelectPrompt={handleSelectPrompt} />
-                  </div>
-                )}
 
                 <textarea
                   value={aiPrompt}
@@ -481,11 +678,14 @@ export default function CreatePost() {
             )}
 
             {fullscreenTab === "preview" && (
-              <div
-                className="h-full bg-white p-8 overflow-auto"
-                onMouseUp={handleFsPreviewSelect}
-              >
-                <div dangerouslySetInnerHTML={{ __html: content }} />
+              <div className="h-full bg-white overflow-hidden">
+                <iframe
+                  ref={fsPreviewIframeRef}
+                  srcDoc={content}
+                  className="w-full h-full border-0"
+                  sandbox="allow-scripts allow-same-origin"
+                  title="Fullscreen Preview"
+                />
               </div>
             )}
 
@@ -508,9 +708,13 @@ export default function CreatePost() {
                 {graphicalContent ? (
                   <>
                     {/* Split view: Preview on top, Code below */}
-                    <div className="flex-1 overflow-auto bg-white p-8">
-                      <div
-                        dangerouslySetInnerHTML={{ __html: graphicalContent }}
+                    <div className="flex-1 overflow-hidden bg-white">
+                      <iframe
+                        ref={graphicalFsIframeRef}
+                        srcDoc={graphicalContent}
+                        className="w-full h-full border-0"
+                        sandbox="allow-scripts allow-same-origin"
+                        title="Graphical Preview"
                       />
                     </div>
                     <div className="h-[300px] border-t border-slate-700 flex flex-col">
@@ -638,9 +842,12 @@ export default function CreatePost() {
                     Refined Result
                   </label>
                   {fsRefinedText ? (
-                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
-                      {fsRefinedText}
-                    </div>
+                    <textarea
+                      value={fsRefinedText}
+                      onChange={(e) => setFsRefinedText(e.target.value)}
+                      className="w-full bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-slate-800 leading-relaxed resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400"
+                      rows={4}
+                    />
                   ) : (
                     <div className="flex items-center justify-center h-24 text-slate-300 text-sm">
                       {fsIsRefining ? (
@@ -710,18 +917,18 @@ export default function CreatePost() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-slate-900">🤖 AI Generator</h3>
                 <button
-                  onClick={() => setShowExamples(!showExamples)}
-                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                  onClick={() => setShowExamples(true)}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
                 >
-                  {showExamples ? "▲" : "▼"} Examples
+                  📚 Browse Prompts
                 </button>
               </div>
 
-              {showExamples && (
-                <div className="mb-4 max-h-64 overflow-y-auto">
-                  <PromptExamples onSelectPrompt={handleSelectPrompt} />
-                </div>
-              )}
+              <PromptExamples
+                open={showExamples}
+                onClose={() => setShowExamples(false)}
+                onSelectPrompt={handleSelectPrompt}
+              />
 
               <textarea
                 value={aiPrompt}
@@ -762,6 +969,24 @@ export default function CreatePost() {
 
               {wantGraphical && (
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500">
+                      Describe your infographic
+                    </span>
+                    <button
+                      onClick={() => setShowGraphicalExamples(true)}
+                      className="text-xs text-purple-600 hover:text-purple-700 font-medium flex items-center gap-1"
+                    >
+                      📚 Browse Prompts
+                    </button>
+                  </div>
+
+                  <GraphicalExamples
+                    open={showGraphicalExamples}
+                    onClose={() => setShowGraphicalExamples(false)}
+                    onSelectPrompt={handleSelectGraphicalPrompt}
+                  />
+
                   <textarea
                     value={graphicalPrompt}
                     onChange={(e) => setGraphicalPrompt(e.target.value)}
@@ -926,9 +1151,16 @@ export default function CreatePost() {
                           </span>
                         </div>
                       </div>
-                      <div className="p-6 overflow-auto max-h-[600px]">
-                        <div
-                          dangerouslySetInnerHTML={{ __html: graphicalContent }}
+                      <div
+                        className="overflow-hidden"
+                        style={{ height: "600px" }}
+                      >
+                        <iframe
+                          ref={sidebarGraphicalIframeRef}
+                          srcDoc={graphicalContent}
+                          className="w-full h-full border-0"
+                          sandbox="allow-scripts allow-same-origin"
+                          title="Graphical Sidebar Preview"
                         />
                       </div>
                     </div>

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import HtmlIframe from "@/components/HtmlIframe";
 
 export async function generateMetadata({ params }) {
   const resolvedParams = await params;
@@ -25,7 +26,7 @@ export default async function BlogPost({ params }) {
   // Ensures images from the Django media folder load correctly
   const fixedContent = post.content.replaceAll(
     'src="/media/',
-    'src="http://127.0.0.1:8000/media/'
+    'src="http://127.0.0.1:8000/media/',
   );
 
   return (
@@ -39,9 +40,22 @@ export default async function BlogPost({ params }) {
       <article className="relative w-full">
         {/* Minimal Floating Navigation */}
         <nav className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-white/70 backdrop-blur-md border border-white/20 px-6 py-3 rounded-full shadow-lg">
-          <Link href="/" className="flex items-center gap-2 text-slate-800 font-bold text-sm group">
-            <svg className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-slate-800 font-bold text-sm group"
+          >
+            <svg
+              className="w-4 h-4 transform group-hover:-translate-x-1 transition-transform"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M10 19l-7-7m0 0l7-7m-7 7h18"
+              />
             </svg>
             Back to Feed
           </Link>
@@ -50,9 +64,14 @@ export default async function BlogPost({ params }) {
         {/* Hero Section: Centered & Clean */}
         <header className="pt-32 pb-16 px-6 max-w-5xl mx-auto text-center">
           <div className="inline-block px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-8">
-            Published {new Date(post.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            Published{" "}
+            {new Date(post.created_at).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
           </div>
-          
+
           <h1 className="text-6xl md:text-8xl font-black tracking-tight text-slate-900 mb-8 leading-[1.05]">
             {post.title}
           </h1>
@@ -68,30 +87,39 @@ export default async function BlogPost({ params }) {
         {post.cover_image && (
           <div className="max-w-7xl mx-auto px-6 mb-20">
             <div className="relative aspect-[21/9] rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white">
-              <img src={post.cover_image} alt={post.title} className="w-full h-full object-cover" />
+              <img
+                src={post.cover_image}
+                alt={post.title}
+                className="w-full h-full object-cover"
+              />
             </div>
           </div>
         )}
 
         {/* Content Container */}
-        <div className={`mx-auto ${post.is_html ? 'w-full px-0' : 'max-w-4xl px-6'} `}>
-          <div className={`${post.is_html ? 'bg-transparent' : 'bg-white shadow-2xl rounded-[3rem] p-8 md:p-20 border border-slate-100'}`}>
-            
+        <div
+          className={`mx-auto ${post.is_html ? "w-full px-0" : "max-w-4xl px-6"} `}
+        >
+          <div
+            className={`${post.is_html ? "bg-transparent" : "bg-white shadow-2xl rounded-[3rem] p-8 md:p-20 border border-slate-100"}`}
+          >
             {post.is_html ? (
               /* --- AI GENERATED HTML MODE (Full Screen Power) --- */
-              <div 
+              <div
                 className="w-full min-h-screen"
-                dangerouslySetInnerHTML={{ __html: fixedContent }} 
+                dangerouslySetInnerHTML={{ __html: fixedContent }}
               />
             ) : (
               /* --- STANDARD BLOG MODE (Readability Focused) --- */
-              <div className="prose prose-slate prose-xl max-w-none 
+              <div
+                className="prose prose-slate prose-xl max-w-none 
                 prose-headings:text-slate-900 prose-headings:font-black
                 prose-h1:text-6xl prose-h2:text-5xl prose-h3:text-4xl
                 prose-p:text-slate-600 prose-p:leading-[1.8]
                 prose-a:text-blue-600 prose-strong:text-slate-900
                 prose-blockquote:border-l-8 prose-blockquote:border-blue-600 prose-blockquote:bg-slate-50
-                prose-img:rounded-[2rem] prose-img:shadow-2xl">
+                prose-img:rounded-[2rem] prose-img:shadow-2xl"
+              >
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {fixedContent}
                 </ReactMarkdown>
@@ -106,21 +134,74 @@ export default async function BlogPost({ params }) {
                     VK
                   </div>
                   <div>
-                    <h4 className="text-2xl font-bold text-slate-900">Vijay Kumar</h4>
-                    <p className="text-slate-500">Software Architect & Tech Strategist</p>
+                    <h4 className="text-2xl font-bold text-slate-900">
+                      Vijay Kumar
+                    </h4>
+                    <p className="text-slate-500">
+                      Software Architect & Tech Strategist
+                    </p>
                   </div>
                 </div>
-                <Link href="/" className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-blue-600 transition-colors shadow-lg">
+                <Link
+                  href="/"
+                  className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-blue-600 transition-colors shadow-lg"
+                >
                   More Stories
                 </Link>
               </div>
             )}
           </div>
         </div>
+
+        {/* Graphical Infographic Section */}
+        {post.graphical_content && (
+          <div className="max-w-6xl mx-auto px-6 mt-20 mb-20">
+            <div className="relative">
+              {/* Section Header */}
+              <div className="text-center mb-10">
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold uppercase tracking-widest mb-4">
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  Visual Infographic
+                </span>
+                <h2 className="text-3xl md:text-4xl font-black text-slate-900">
+                  Graphical Explanation
+                </h2>
+                <p className="text-slate-500 mt-2 text-lg">
+                  An AI-generated visual breakdown of the topic
+                </p>
+              </div>
+
+              {/* Infographic Container */}
+              <div className="bg-white rounded-3xl shadow-2xl border border-purple-100 overflow-hidden">
+                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100 px-6 py-3 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+                  <span className="text-sm font-semibold text-purple-700">
+                    Live Infographic
+                  </span>
+                </div>
+                <HtmlIframe
+                  html={post.graphical_content}
+                  title="Graphical Infographic"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </article>
-      
+
       {/* Footer Branding */}
-      
     </div>
   );
 }

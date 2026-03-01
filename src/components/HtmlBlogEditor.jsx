@@ -1,6 +1,7 @@
 // src/components/HtmlBlogEditor.jsx
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { getAuthToken } from "@/lib/authApi";
 
 const REFINE_COMMANDS = [
   {
@@ -33,9 +34,14 @@ const REFINE_COMMANDS = [
     label: "🔤 Grammar Fix",
     bg: "linear-gradient(135deg, #06b6d4, #3b82f6)",
   },
+  {
+    key: "change",
+    label: "🔄 Change",
+    bg: "linear-gradient(135deg, #f59e0b, #d97706)",
+  },
 ];
 
-export default function HtmlBlogEditor({ value, onChange, authToken }) {
+export default function HtmlBlogEditor({ value, onChange }) {
   const [selectedText, setSelectedText] = useState("");
   const [selectionStart, setSelectionStart] = useState(0);
   const [selectionEnd, setSelectionEnd] = useState(0);
@@ -44,8 +50,50 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
   const [isRefining, setIsRefining] = useState(false);
   const [activeCommand, setActiveCommand] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const textareaRef = useRef(null);
   const previewRef = useRef(null);
+  const iframeRef = useRef(null);
+
+  // Helper to attach mouseup listener inside the iframe document
+  const attachIframeMouseup = useCallback((iframe) => {
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc || !doc.body) return;
+      // Avoid duplicate listeners by marking
+      if (doc.__mouseupAttached) return;
+      doc.__mouseupAttached = true;
+      doc.addEventListener("mouseup", () => {
+        const sel = iframe.contentWindow.getSelection();
+        if (!sel || sel.isCollapsed) return;
+        const text = sel.toString().trim();
+        if (text && text.length > 2) {
+          setSelectedText(text);
+          setSelectionSource("preview");
+          setRefinedText("");
+          setPanelOpen(true);
+        }
+      });
+    } catch (e) {
+      // cross-origin guard
+    }
+  }, []);
+
+  // Attach mouseup listener inside the iframe for preview text selection
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const onLoad = () => attachIframeMouseup(iframe);
+    iframe.addEventListener("load", onLoad);
+
+    // Also try immediately in case iframe already loaded
+    if (iframe.contentDocument?.body) {
+      attachIframeMouseup(iframe);
+    }
+
+    return () => iframe.removeEventListener("load", onLoad);
+  }, [value, attachIframeMouseup]);
 
   // Capture text selection from the CODE editor (textarea)
   const handleCodeSelect = useCallback(() => {
@@ -64,22 +112,18 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
     }
   }, [value]);
 
-  // Capture text selection from the PREVIEW (live output) using window.getSelection
-  const handlePreviewSelect = useCallback(() => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
-    const text = selection.toString().trim();
-    if (text && text.length > 2) {
-      setSelectedText(text);
-      setSelectionSource("preview");
-      setRefinedText("");
-      setPanelOpen(true);
-    }
-  }, []);
+  // Preview text selection is now handled via useEffect on the iframe's contentDocument
 
   // Call the refine API
   const handleRefine = async (command) => {
     if (!selectedText) return;
+
+    // "Change" = let user edit directly, no API call
+    if (command === "change") {
+      setRefinedText(selectedText);
+      return;
+    }
+
     setIsRefining(true);
     setActiveCommand(command);
     setRefinedText("");
@@ -89,7 +133,7 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Token ${authToken}` } : {}),
+          Authorization: `Token ${getAuthToken()}`,
         },
         body: JSON.stringify({
           text_snippet: selectedText,
@@ -127,13 +171,113 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
       const after = value.substring(selectionEnd);
       onChange(before + refinedText + after);
     } else {
-      // Replace by string matching (for preview selections)
-      const newValue = value.replace(selectedText, refinedText);
+      // Smart replace for preview selections
+      let newValue = value;
+      let matched = false;
+
+      // Strategy 1: Exact match
+      if (value.includes(selectedText)) {
+        newValue = value.replace(selectedText, refinedText);
+        matched = true;
+      }
+
+      // Strategy 2: Normalized whitespace match
+      if (!matched) {
+        const normalizedSelected = selectedText.replace(/\s+/g, " ").trim();
+        // Search for the text in the HTML with flexible whitespace
+        const escapedNorm = normalizedSelected.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        const wsFlexPattern = escapedNorm.split(" ").join("\\s+");
+        const wsRegex = new RegExp(wsFlexPattern, "s");
+        const wsMatch = value.match(wsRegex);
+        if (wsMatch) {
+          newValue = value.replace(wsMatch[0], refinedText);
+          matched = true;
+        }
+      }
+
+      // Strategy 3: Allow HTML tags between words
+      if (!matched) {
+        const escaped = selectedText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const flexPattern = escaped.split(/\s+/).join("\\s*(?:<[^>]*>\\s*)*");
+        const regex = new RegExp(flexPattern, "s");
+        const match = value.match(regex);
+        if (match) {
+          newValue = value.replace(match[0], refinedText);
+          matched = true;
+        }
+      }
+
+      // Strategy 4: First-word...last-word loose match
+      if (!matched) {
+        const words = selectedText.split(/\s+/);
+        if (words.length >= 2) {
+          const first = words[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const last = words[words.length - 1].replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
+          );
+          const looseRegex = new RegExp(first + "[\\s\\S]*?" + last, "s");
+          const looseMatch = value.match(looseRegex);
+          if (looseMatch && looseMatch[0].length < selectedText.length * 3) {
+            newValue = value.replace(looseMatch[0], refinedText);
+            matched = true;
+          }
+        }
+      }
+
+      if (!matched) {
+        alert(
+          "Could not locate the selected text in the HTML source. Try selecting from the code editor instead.",
+        );
+        return;
+      }
+
       onChange(newValue);
     }
     setSelectedText("");
     setRefinedText("");
     setPanelOpen(false);
+  };
+
+  // Enhance the entire page design via dedicated API
+  const handleEnhanceDesign = async () => {
+    if (!value || value.trim().length < 50) {
+      alert("Generate some content first before enhancing the design.");
+      return;
+    }
+    setIsEnhancing(true);
+    try {
+      const token = getAuthToken();
+      const res = await fetch("http://127.0.0.1:8000/api/enhance-design/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ html_content: value }),
+      });
+      const data = await res.json();
+      if (res.ok && data.enhanced_code) {
+        onChange(data.enhanced_code);
+      } else {
+        if (res.status === 429) {
+          const retryMsg = data.retry_after_seconds
+            ? ` Retry in ${data.retry_after_seconds}s.`
+            : "";
+          alert(`Rate limited.${retryMsg}`);
+        } else {
+          alert(data.error || "Design enhancement failed.");
+        }
+      }
+    } catch (err) {
+      console.error("Enhance Error:", err);
+      alert("Error connecting to AI service.");
+    } finally {
+      setIsEnhancing(false);
+    }
   };
 
   const handleDiscard = () => {
@@ -144,6 +288,30 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
 
   return (
     <div className="relative">
+      {/* Enhance Design Button */}
+      {value && value.trim().length > 50 && (
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={handleEnhanceDesign}
+            disabled={isEnhancing}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+          >
+            {isEnhancing ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                Enhancing Design…
+              </>
+            ) : (
+              <>
+                <span>🎨</span>
+                Enhance Design
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
         {/* Code Editor Side */}
         <div className="flex flex-col h-full border rounded-2xl overflow-hidden shadow-sm bg-slate-900">
@@ -182,10 +350,15 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
           </div>
           <div
             ref={previewRef}
-            className="flex-1 p-6 overflow-auto bg-slate-50/50"
-            onMouseUp={handlePreviewSelect}
+            className="flex-1 overflow-hidden bg-slate-50/50"
           >
-            <div dangerouslySetInnerHTML={{ __html: value }} />
+            <iframe
+              ref={iframeRef}
+              srcDoc={value}
+              className="w-full h-full border-0"
+              sandbox="allow-scripts allow-same-origin"
+              title="Live Preview"
+            />
           </div>
         </div>
       </div>
@@ -274,9 +447,12 @@ export default function HtmlBlogEditor({ value, onChange, authToken }) {
                 Refined Result
               </label>
               {refinedText ? (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
-                  {refinedText}
-                </div>
+                <textarea
+                  value={refinedText}
+                  onChange={(e) => setRefinedText(e.target.value)}
+                  className="w-full bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-slate-800 leading-relaxed resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400"
+                  rows={4}
+                />
               ) : (
                 <div className="flex items-center justify-center h-24 text-slate-300 text-sm">
                   {isRefining ? (
