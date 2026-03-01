@@ -38,7 +38,7 @@ export default function Navbar() {
             href="/"
             className="text-xl sm:text-2xl font-bold text-blue-600 hover:text-blue-700 transition flex-shrink-0"
           >
-            MyBlog
+            Blogs
           </Link>
 
           {/* Desktop Navigation */}
@@ -49,12 +49,12 @@ export default function Navbar() {
             >
               Home
             </Link>
-            <Link
+            {/* <Link
               href="/blog"
               className="hover:text-blue-500 transition font-medium text-slate-900 text-sm lg:text-base"
             >
               Blog
-            </Link>
+            </Link> */}
 
             {user ? (
               <>
@@ -227,13 +227,13 @@ export default function Navbar() {
             >
               Home
             </Link>
-            <Link
+            {/* <Link
               href="/blog"
               className="block px-4 py-2 rounded-lg hover:bg-slate-50 transition font-medium text-slate-900 text-sm"
               onClick={() => setMobileMenuOpen(false)}
             >
               Blog
-            </Link>
+            </Link> */}
 
             {user ? (
               <>

@@ -1,6 +1,6 @@
 // src/app/create/page.jsx
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import HtmlBlogEditor from "@/components/HtmlBlogEditor";
 import PromptExamples from "@/components/PromptExamples";
@@ -27,6 +27,126 @@ export default function CreatePost() {
   const [isGeneratingGraphical, setIsGeneratingGraphical] = useState(false);
   const router = useRouter();
 
+  // ── Fullscreen AI Refine state ──
+  const REFINE_COMMANDS = [
+    {
+      key: "simplify",
+      label: "✨ Simplify",
+      bg: "linear-gradient(135deg, #10b981, #14b8a6)",
+    },
+    {
+      key: "professional",
+      label: "💼 Professional",
+      bg: "linear-gradient(135deg, #3b82f6, #6366f1)",
+    },
+    {
+      key: "translate_marathi",
+      label: "🇮🇳 Marathi",
+      bg: "linear-gradient(135deg, #f97316, #f59e0b)",
+    },
+    {
+      key: "expand",
+      label: "📝 Expand",
+      bg: "linear-gradient(135deg, #a855f7, #ec4899)",
+    },
+    {
+      key: "shorten",
+      label: "✂️ Shorten",
+      bg: "linear-gradient(135deg, #f43f5e, #ef4444)",
+    },
+    {
+      key: "fix_grammar",
+      label: "🔤 Grammar Fix",
+      bg: "linear-gradient(135deg, #06b6d4, #3b82f6)",
+    },
+  ];
+  const [fsSelectedText, setFsSelectedText] = useState("");
+  const [fsSelStart, setFsSelStart] = useState(0);
+  const [fsSelEnd, setFsSelEnd] = useState(0);
+  const [fsSelSource, setFsSelSource] = useState("code");
+  const [fsRefinedText, setFsRefinedText] = useState("");
+  const [fsIsRefining, setFsIsRefining] = useState(false);
+  const [fsActiveCmd, setFsActiveCmd] = useState("");
+  const [fsPanelOpen, setFsPanelOpen] = useState(false);
+  const fsCodeRef = useRef(null);
+
+  const handleFsCodeSelect = useCallback(() => {
+    const ta = fsCodeRef.current;
+    if (!ta) return;
+    const text = content.substring(ta.selectionStart, ta.selectionEnd).trim();
+    if (text && text.length > 2) {
+      setFsSelectedText(text);
+      setFsSelStart(ta.selectionStart);
+      setFsSelEnd(ta.selectionEnd);
+      setFsSelSource("code");
+      setFsRefinedText("");
+      setFsPanelOpen(true);
+    }
+  }, [content]);
+
+  const handleFsPreviewSelect = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    const text = sel.toString().trim();
+    if (text && text.length > 2) {
+      setFsSelectedText(text);
+      setFsSelSource("preview");
+      setFsRefinedText("");
+      setFsPanelOpen(true);
+    }
+  }, []);
+
+  const handleFsRefine = async (command) => {
+    if (!fsSelectedText) return;
+    setFsIsRefining(true);
+    setFsActiveCmd(command);
+    setFsRefinedText("");
+    const token = getAuthToken();
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/refine-text/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ text_snippet: fsSelectedText, command }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFsRefinedText(data.refined_text || "");
+      } else {
+        alert(data.error || "Refine failed");
+      }
+    } catch (err) {
+      alert("Error connecting to AI service.");
+    } finally {
+      setFsIsRefining(false);
+      setFsActiveCmd("");
+    }
+  };
+
+  const handleFsApply = () => {
+    if (!fsRefinedText) return;
+    if (fsSelSource === "code") {
+      setContent(
+        content.substring(0, fsSelStart) +
+          fsRefinedText +
+          content.substring(fsSelEnd),
+      );
+    } else {
+      setContent(content.replace(fsSelectedText, fsRefinedText));
+    }
+    setFsSelectedText("");
+    setFsRefinedText("");
+    setFsPanelOpen(false);
+  };
+
+  const handleFsDiscard = () => {
+    setFsSelectedText("");
+    setFsRefinedText("");
+    setFsPanelOpen(false);
+  };
+
   // Check authentication and load data
   useEffect(() => {
     const token = getAuthToken();
@@ -34,9 +154,19 @@ export default function CreatePost() {
       router.push("/auth/login");
     } else {
       fetchCategories();
-      fetchTags();
     }
   }, []);
+
+  // Fetch tags whenever category changes
+  useEffect(() => {
+    if (selectedCategory) {
+      fetchTags(selectedCategory);
+      setSelectedTags([]); // reset tags on category switch
+    } else {
+      setTags([]);
+      setSelectedTags([]);
+    }
+  }, [selectedCategory]);
 
   const fetchCategories = async () => {
     try {
@@ -48,9 +178,12 @@ export default function CreatePost() {
     }
   };
 
-  const fetchTags = async () => {
+  const fetchTags = async (categoryId) => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/tags/");
+      const url = categoryId
+        ? `http://127.0.0.1:8000/api/tags/?category=${categoryId}`
+        : "http://127.0.0.1:8000/api/tags/";
+      const res = await fetch(url);
       const data = await res.json();
       setTags(data);
     } catch (err) {
@@ -245,7 +378,7 @@ export default function CreatePost() {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsFullscreen(false)}
-                className="text-slate-400 hover:text-white transition flex items-center gap-2"
+                className="text-slate-400 text-white transition flex items-center gap-2"
               >
                 <svg
                   className="w-5 h-5"
@@ -268,7 +401,7 @@ export default function CreatePost() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
                     fullscreenTab === "prompt"
                       ? "bg-blue-600 text-white"
-                      : "text-slate-400 hover:text-white"
+                      : "text-slate-400 text-white"
                   }`}
                 >
                   AI Prompt
@@ -278,7 +411,7 @@ export default function CreatePost() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
                     fullscreenTab === "preview"
                       ? "bg-blue-600 text-white"
-                      : "text-slate-400 hover:text-white"
+                      : "text-slate-400 text-white"
                   }`}
                 >
                   Live Output
@@ -288,7 +421,7 @@ export default function CreatePost() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
                     fullscreenTab === "code"
                       ? "bg-blue-600 text-white"
-                      : "text-slate-400 hover:text-white"
+                      : "text-slate-400 text-white"
                   }`}
                 >
                   HTML Source
@@ -299,7 +432,7 @@ export default function CreatePost() {
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
                       fullscreenTab === "graphical"
                         ? "bg-purple-600 text-white"
-                        : "text-slate-400 hover:text-white"
+                        : "text-slate-400 text-white"
                     }`}
                   >
                     📊 Infographic
@@ -348,7 +481,10 @@ export default function CreatePost() {
             )}
 
             {fullscreenTab === "preview" && (
-              <div className="h-full bg-white p-8 overflow-auto">
+              <div
+                className="h-full bg-white p-8 overflow-auto"
+                onMouseUp={handleFsPreviewSelect}
+              >
                 <div dangerouslySetInnerHTML={{ __html: content }} />
               </div>
             )}
@@ -356,9 +492,12 @@ export default function CreatePost() {
             {fullscreenTab === "code" && (
               <div className="h-full">
                 <textarea
+                  ref={fsCodeRef}
                   className="w-full h-full p-8 bg-slate-900 text-blue-300 font-mono text-sm outline-none resize-none leading-relaxed"
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
+                  onMouseUp={handleFsCodeSelect}
+                  onKeyUp={handleFsCodeSelect}
                   placeholder="<div class='bg-blue-500 p-10'>...</div>"
                 />
               </div>
@@ -412,6 +551,141 @@ export default function CreatePost() {
               </div>
             )}
           </div>
+
+          {/* ── Fullscreen AI Refine Panel ── */}
+          {fsPanelOpen && fsSelectedText && (
+            <div
+              className="fixed top-1/2 right-8 -translate-y-1/2 z-[200] w-[370px]"
+              style={{ maxHeight: "85vh" }}
+            >
+              <div
+                className="flex flex-col bg-white rounded-2xl overflow-hidden"
+                style={{
+                  maxHeight: "85vh",
+                  boxShadow:
+                    "0 25px 60px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(139,92,246,0.2)",
+                }}
+              >
+                {/* Header */}
+                <div
+                  className="px-5 py-4 flex items-center justify-between shrink-0"
+                  style={{
+                    background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🪄</span>
+                    <span className="text-white font-bold text-sm">
+                      AI Refine
+                    </span>
+                    <span className="text-[10px] text-white/60 bg-white/15 px-2 py-0.5 rounded-full ml-1">
+                      {fsSelSource === "code" ? "Source" : "Preview"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleFsDiscard}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-white/70 hover:text-white hover:bg-white/20 text-sm transition"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Selected Text */}
+                <div className="px-5 py-3 border-b border-slate-100 shrink-0">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">
+                    Selected Text
+                  </label>
+                  <div className="bg-slate-50 rounded-xl p-3 text-sm text-slate-700 max-h-24 overflow-y-auto leading-relaxed border border-slate-100">
+                    {fsSelectedText.length > 250
+                      ? fsSelectedText.slice(0, 250) + "…"
+                      : fsSelectedText}
+                  </div>
+                </div>
+
+                {/* Command Buttons */}
+                <div className="px-5 py-3 border-b border-slate-100 shrink-0">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">
+                    Choose Action
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {REFINE_COMMANDS.map((cmd) => (
+                      <button
+                        key={cmd.key}
+                        onClick={() => handleFsRefine(cmd.key)}
+                        disabled={fsIsRefining}
+                        style={{ background: cmd.bg }}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-bold text-white transition-all
+                          hover:shadow-lg hover:scale-[1.03] active:scale-95
+                          disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100
+                          ${fsActiveCmd === cmd.key ? "ring-2 ring-offset-2 ring-purple-400 scale-[1.03]" : ""}`}
+                      >
+                        {fsIsRefining && fsActiveCmd === cmd.key ? (
+                          <span className="flex items-center justify-center gap-1.5">
+                            <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                            Working…
+                          </span>
+                        ) : (
+                          cmd.label
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Refined Output */}
+                <div className="flex-1 px-5 py-3 overflow-y-auto min-h-[120px] max-h-[250px]">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">
+                    Refined Result
+                  </label>
+                  {fsRefinedText ? (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+                      {fsRefinedText}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-24 text-slate-300 text-sm">
+                      {fsIsRefining ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div
+                            className="w-7 h-7 rounded-full animate-spin"
+                            style={{
+                              border: "3px solid #e9d5ff",
+                              borderTopColor: "#7c3aed",
+                            }}
+                          />
+                          <span className="text-purple-400 text-xs font-medium">
+                            AI is refining…
+                          </span>
+                        </div>
+                      ) : (
+                        "Select an action above to refine"
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Footer */}
+                {fsRefinedText && (
+                  <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex gap-2 shrink-0">
+                    <button
+                      onClick={handleFsApply}
+                      style={{
+                        background: "linear-gradient(135deg, #10b981, #14b8a6)",
+                      }}
+                      className="flex-1 py-2.5 text-white rounded-xl text-sm font-bold hover:shadow-lg transition"
+                    >
+                      ✅ Apply Change
+                    </button>
+                    <button
+                      onClick={handleFsDiscard}
+                      className="px-4 py-2.5 bg-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-300 transition"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
