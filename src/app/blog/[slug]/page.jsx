@@ -30,7 +30,7 @@ export default async function BlogPost({ params }) {
   );
 
   return (
-    <div className="min-h-screen bg-dark">
+    <div className="min-h-screen bg-white">
       {/* Dynamic Ambient Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
         <div className="absolute -top-24 -right-24 w-[500px] h-[500px] bg-blue-100/50 rounded-full blur-[120px] animate-pulse"></div>
@@ -105,9 +105,10 @@ export default async function BlogPost({ params }) {
           >
             {post.is_html ? (
               /* --- AI GENERATED HTML MODE (Full Screen Power) --- */
-              <div
-                className="w-full min-h-screen"
-                dangerouslySetInnerHTML={{ __html: fixedContent }}
+              <HtmlIframe
+                html={fixedContent}
+                title={post.title}
+                className="bg-transparent"
               />
             ) : (
               /* --- STANDARD BLOG MODE (Readability Focused) --- */
