@@ -78,9 +78,7 @@ export default function CreatePost() {
   const [isEnhancing, setIsEnhancing] = useState(false);
   const fsCodeRef = useRef(null);
   const fsPreviewIframeRef = useRef(null);
-  const graphicalIframeRef = useRef(null);
   const graphicalFsIframeRef = useRef(null);
-  const sidebarGraphicalIframeRef = useRef(null);
 
   // Helper to attach mouseup listener inside an iframe document
   const attachFsIframeMouseup = useCallback((iframe) => {
@@ -1139,70 +1137,11 @@ export default function CreatePost() {
                   )}
                 </div>
 
-                {graphicalContent ? (
-                  <div className="space-y-4">
-                    {/* Graphical Live Preview */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
-                      <div className="bg-purple-50 border-b border-purple-100 px-4 py-2 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
-                          <span className="text-xs font-medium text-purple-700">
-                            Live Infographic Preview
-                          </span>
-                        </div>
-                      </div>
-                      <div
-                        className="overflow-hidden"
-                        style={{ height: "600px" }}
-                      >
-                        <iframe
-                          ref={sidebarGraphicalIframeRef}
-                          srcDoc={graphicalContent}
-                          className="w-full h-full border-0"
-                          sandbox="allow-scripts allow-same-origin"
-                          title="Graphical Sidebar Preview"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Graphical HTML Source Code */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-purple-200 overflow-hidden">
-                      <div className="bg-slate-900 border-b border-slate-700 px-4 py-2 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-purple-400">
-                            {"</>"} Graphical Source Code
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(graphicalContent);
-                            alert("Graphical code copied to clipboard!");
-                          }}
-                          className="text-xs text-slate-400 hover:text-white transition px-2 py-1 rounded hover:bg-slate-700"
-                        >
-                          📋 Copy
-                        </button>
-                      </div>
-                      <textarea
-                        className="w-full p-6 bg-slate-900 text-purple-300 font-mono text-sm outline-none resize-none leading-relaxed min-h-[300px]"
-                        value={graphicalContent}
-                        onChange={(e) => setGraphicalContent(e.target.value)}
-                        placeholder="Graphical HTML will appear here..."
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-white rounded-2xl shadow-sm border border-dashed border-purple-300 p-12 text-center">
-                    <span className="text-5xl mb-3 block">📊</span>
-                    <p className="text-slate-500 font-medium">
-                      No infographic generated yet
-                    </p>
-                    <p className="text-slate-400 text-sm mt-1">
-                      Enter a description in the sidebar and click "Generate
-                      Infographic"
-                    </p>
-                  </div>
-                )}
+                <HtmlBlogEditor
+                  value={graphicalContent}
+                  onChange={setGraphicalContent}
+                  contentType="graphical"
+                />
               </div>
             )}
           </div>
