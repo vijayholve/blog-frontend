@@ -61,6 +61,7 @@ export default function HtmlBlogEditor({
   const [endPt, setEndPt] = useState(null);
   const [mousePos, setMousePos] = useState(null);
   const [capturedHTML, setCapturedHTML] = useState("");
+  const [capturedSourceRange, setCapturedSourceRange] = useState(null); // {start, end} indices in source
   const [enhanceInstructions, setEnhanceInstructions] = useState("");
   const textareaRef = useRef(null);
   const previewRef = useRef(null);
@@ -108,11 +109,11 @@ export default function HtmlBlogEditor({
     return () => iframe.removeEventListener("load", onLoad);
   }, [value, attachIframeMouseup]);
 
-  // Escape to cancel section enhance
+  // Escape to cancel section enhance (not during enhancing)
   useEffect(() => {
     if (!enhanceStep) return;
     const onKey = (e) => {
-      if (e.key === "Escape") cancelEnhance();
+      if (e.key === "Escape" && enhanceStep !== "enhancing") cancelEnhance();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -318,6 +319,7 @@ export default function HtmlBlogEditor({
     setEndPt(null);
     setMousePos(null);
     setCapturedHTML("");
+    setCapturedSourceRange(null);
     setEnhanceStep("fullscreen");
   };
 
@@ -327,6 +329,7 @@ export default function HtmlBlogEditor({
     setEndPt(null);
     setMousePos(null);
     setCapturedHTML("");
+    setCapturedSourceRange(null);
     setEnhanceInstructions("");
   };
 
@@ -342,6 +345,7 @@ export default function HtmlBlogEditor({
     setEndPt(null);
     setMousePos(null);
     setCapturedHTML("");
+    setCapturedSourceRange(null);
     setEnhanceInstructions("");
     setEnhanceStep("marking");
   };
@@ -389,6 +393,182 @@ export default function HtmlBlogEditor({
     };
   };
 
+  // Helper: find source section and its indices from a rendered DOM element
+  const findSourceSection = (target, tagName, sourceValue) => {
+    const cls = target.getAttribute("class") || "";
+    const id = target.getAttribute("id") || "";
+
+    // Strategy 1: Match by id (most reliable)
+    if (id) {
+      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const idRx = new RegExp(
+        `<${tagName}[^>]*\\bid\\s*=\\s*["']${escapedId}["'][^>]*>`,
+        "si",
+      );
+      const range = findClosingTag(idRx, tagName, sourceValue);
+      if (range) return range;
+    }
+
+    // Strategy 2: Match by class
+    if (cls) {
+      // Try each class individually for more flexible matching
+      const classes = cls.split(/\s+/).filter(Boolean);
+      // Try matching by all classes first
+      const escapedCls = cls.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const exactClassRx = new RegExp(
+        `<${tagName}[^>]*class\\s*=\\s*["']${escapedCls}["'][^>]*>`,
+        "si",
+      );
+      let range = findClosingTag(exactClassRx, tagName, sourceValue);
+      if (range) return range;
+
+      // Try matching where class contains the key classes (flexible order)
+      if (classes.length >= 2) {
+        // Build a regex that matches a tag containing at least 2 distinctive classes
+        const distinctClasses = classes.filter((c) => c.length > 3).slice(0, 3);
+        if (distinctClasses.length >= 1) {
+          const classPatterns = distinctClasses.map((c) =>
+            c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          );
+          // Match tag where class attribute contains all these classes (any order)
+          const lookaheads = classPatterns
+            .map((p) => `(?=[^"']*${p})`)
+            .join("");
+          const flexClassRx = new RegExp(
+            `<${tagName}[^>]*class\\s*=\\s*["']${lookaheads}[^"']*["'][^>]*>`,
+            "si",
+          );
+          range = findClosingTag(flexClassRx, tagName, sourceValue);
+          if (range) return range;
+        }
+      }
+    }
+
+    // Strategy 3: Match by inline style attribute
+    const style = target.getAttribute("style") || "";
+    if (style && style.length > 5) {
+      const escapedStyle = style
+        .substring(0, 40)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const styleRx = new RegExp(
+        `<${tagName}[^>]*style\\s*=\\s*["'][^"']*${escapedStyle}[^"']*["'][^>]*>`,
+        "si",
+      );
+      const range = findClosingTag(styleRx, tagName, sourceValue);
+      if (range) return range;
+    }
+
+    // Strategy 4: Match by inner text content — find a unique text snippet
+    const textContent = target.textContent?.trim() || "";
+    if (textContent.length > 10) {
+      // Take first 60 chars of text, find the tag containing it
+      const snippet = textContent
+        .substring(0, 60)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\s+/g, "\\s+");
+      // Find the innermost tag of our tagName that contains this text
+      const allTagRx = new RegExp(`<${tagName}[^>]*>`, "gi");
+      let match;
+      while ((match = allTagRx.exec(sourceValue)) !== null) {
+        const range = findClosingTagFromIndex(
+          tagName,
+          sourceValue,
+          match.index,
+          match[0].length,
+        );
+        if (range) {
+          const sectionText = sourceValue.substring(range.start, range.end);
+          const textRx = new RegExp(snippet, "si");
+          if (textRx.test(sectionText)) {
+            return { section: sectionText, start: range.start, end: range.end };
+          }
+        }
+      }
+    }
+
+    // Strategy 5: exact outerHTML match
+    const rendered = target.outerHTML;
+    const idx = sourceValue.indexOf(rendered);
+    if (idx !== -1) {
+      return { section: rendered, start: idx, end: idx + rendered.length };
+    }
+
+    return null;
+  };
+
+  // Find closing tag and return {section, start, end}
+  const findClosingTag = (openTagRx, tagName, sourceValue) => {
+    const openMatch = sourceValue.match(openTagRx);
+    if (!openMatch) return null;
+    const startIdx = sourceValue.indexOf(openMatch[0]);
+    if (startIdx === -1) return null;
+    return findClosingTagFromIndex(
+      tagName,
+      sourceValue,
+      startIdx,
+      openMatch[0].length,
+    );
+  };
+
+  const findClosingTagFromIndex = (
+    tagName,
+    sourceValue,
+    startIdx,
+    openTagLen,
+  ) => {
+    let depth = 1;
+    let i = startIdx + openTagLen;
+    // Self-closing tags
+    const selfClosing = [
+      "br",
+      "hr",
+      "img",
+      "input",
+      "meta",
+      "link",
+      "area",
+      "base",
+      "col",
+      "embed",
+      "source",
+      "track",
+      "wbr",
+    ];
+    if (selfClosing.includes(tagName.toLowerCase())) {
+      const endIdx = startIdx + openTagLen;
+      return {
+        section: sourceValue.substring(startIdx, endIdx),
+        start: startIdx,
+        end: endIdx,
+      };
+    }
+    const openRx = new RegExp(`<${tagName}[\\s>/]`, "gi");
+    const closeRx = new RegExp(`</${tagName}\\s*>`, "gi");
+    while (depth > 0 && i < sourceValue.length) {
+      openRx.lastIndex = i;
+      closeRx.lastIndex = i;
+      const nextOpen = openRx.exec(sourceValue);
+      const nextClose = closeRx.exec(sourceValue);
+      if (!nextClose) break;
+      if (nextOpen && nextOpen.index < nextClose.index) {
+        depth++;
+        i = nextOpen.index + nextOpen[0].length;
+      } else {
+        depth--;
+        if (depth === 0) {
+          const endIdx = nextClose.index + nextClose[0].length;
+          return {
+            section: sourceValue.substring(startIdx, endIdx),
+            start: startIdx,
+            end: endIdx,
+          };
+        }
+        i = nextClose.index + nextClose[0].length;
+      }
+    }
+    return null;
+  };
+
   const captureElementsInRect = (pt1, pt2) => {
     const iframe = enhanceIframeRef.current;
     if (!iframe) return;
@@ -401,8 +581,6 @@ export default function HtmlBlogEditor({
     try {
       const doc = iframe.contentDocument || iframe.contentWindow?.document;
       if (!doc || !doc.body) return;
-      // The iframe is rendered at full height inside the scrollable container,
-      // so the box coords already match the iframe's document coordinates.
       const sel = {
         left: box.x,
         top: box.y,
@@ -412,8 +590,6 @@ export default function HtmlBlogEditor({
       const allEls = Array.from(doc.body.querySelectorAll("*"));
       const hits = allEls.filter((el) => {
         const r = el.getBoundingClientRect();
-        // getBoundingClientRect is relative to viewport of iframe,
-        // but since iframe is not scrolled (it's full height), coords match.
         return (
           r.width > 0 &&
           r.height > 0 &&
@@ -450,65 +626,37 @@ export default function HtmlBlogEditor({
         }
       }
 
-      const renderedHTML = target.outerHTML;
-
-      // Find the matching source HTML by using the opening tag to locate it.
-      // The browser's outerHTML may differ from source, so extract the opening
-      // tag's key attributes (tag name + class) to search the source.
       const tagName = target.tagName.toLowerCase();
-      const cls = target.getAttribute("class") || "";
 
-      let sourceSection = "";
-      if (cls) {
-        // Build a regex to find the opening tag with this class in the source
-        const escapedCls = cls.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        // Match <tagName ... class="cls" ...> ... </tagName>
-        const openTagRx = new RegExp(
-          `<${tagName}[^>]*class\\s*=\\s*["']${escapedCls}["'][^>]*>`,
-          "si",
-        );
-        const openMatch = value.match(openTagRx);
-        if (openMatch) {
-          const startIdx = value.indexOf(openMatch[0]);
-          // Find the matching closing tag, accounting for nesting
-          let depth = 1;
-          let i = startIdx + openMatch[0].length;
-          const openRx = new RegExp(`<${tagName}[\\s>]`, "gi");
-          const closeRx = new RegExp(`</${tagName}\\s*>`, "gi");
-          while (depth > 0 && i < value.length) {
-            openRx.lastIndex = i;
-            closeRx.lastIndex = i;
-            const nextOpen = openRx.exec(value);
-            const nextClose = closeRx.exec(value);
-            if (!nextClose) break;
-            if (nextOpen && nextOpen.index < nextClose.index) {
-              depth++;
-              i = nextOpen.index + nextOpen[0].length;
-            } else {
-              depth--;
-              if (depth === 0) {
-                sourceSection = value.substring(
-                  startIdx,
-                  nextClose.index + nextClose[0].length,
-                );
-              }
-              i = nextClose.index + nextClose[0].length;
-            }
-          }
+      // Try to find the source section and its position
+      let result = findSourceSection(target, tagName, value);
+
+      // If no match, try parent element
+      if (
+        !result &&
+        target.parentElement &&
+        target.parentElement !== doc.body
+      ) {
+        const parentTag = target.parentElement.tagName.toLowerCase();
+        result = findSourceSection(target.parentElement, parentTag, value);
+      }
+
+      if (result) {
+        setCapturedHTML(result.section);
+        setCapturedSourceRange({ start: result.start, end: result.end });
+      } else {
+        // Last resort: use rendered HTML (may not match for replacement)
+        const rendered = target.outerHTML;
+        setCapturedHTML(rendered);
+        // Try to find it in source for the range
+        const idx = value.indexOf(rendered);
+        if (idx !== -1) {
+          setCapturedSourceRange({ start: idx, end: idx + rendered.length });
+        } else {
+          setCapturedSourceRange(null);
         }
       }
 
-      // Fallback: try exact match of rendered outerHTML
-      if (!sourceSection && value.includes(renderedHTML)) {
-        sourceSection = renderedHTML;
-      }
-
-      if (!sourceSection) {
-        // Last resort: use the rendered HTML and warn
-        sourceSection = renderedHTML;
-      }
-
-      setCapturedHTML(sourceSection);
       setEnhanceStep("confirming");
     } catch (err) {
       console.error("Capture error:", err);
@@ -522,6 +670,18 @@ export default function HtmlBlogEditor({
     setEnhanceStep("enhancing");
     try {
       const token = getAuthToken();
+      // Build instructions — always include "preserve existing color scheme" unless user specifies colors
+      let finalInstructions = enhanceInstructions.trim();
+      const mentionsColor =
+        /colou?r|theme|background|bg|gradient|dark|light|blue|red|green/i.test(
+          finalInstructions,
+        );
+      if (!mentionsColor) {
+        finalInstructions =
+          (finalInstructions ? finalInstructions + ". " : "") +
+          "IMPORTANT: Preserve the existing color scheme and background colors. Do NOT change the overall color palette or add new background colors.";
+      }
+
       const res = await fetch("http://127.0.0.1:8000/api/enhance-section/", {
         method: "POST",
         headers: {
@@ -531,21 +691,35 @@ export default function HtmlBlogEditor({
         body: JSON.stringify({
           html_content: capturedHTML,
           content_type: contentType,
-          ...(enhanceInstructions.trim()
-            ? { instructions: enhanceInstructions.trim() }
-            : {}),
+          instructions: finalInstructions,
         }),
       });
       const data = await res.json();
       if (res.ok && data.enhanced_code) {
         let newVal = value;
         let matched = false;
-        // Strategy 1: exact match
-        if (value.includes(capturedHTML)) {
+
+        // Strategy 1: Use stored source range (most reliable)
+        if (capturedSourceRange) {
+          const { start, end } = capturedSourceRange;
+          // Verify the source hasn't changed since capture
+          const currentSection = value.substring(start, end);
+          if (currentSection === capturedHTML) {
+            newVal =
+              value.substring(0, start) +
+              data.enhanced_code +
+              value.substring(end);
+            matched = true;
+          }
+        }
+
+        // Strategy 2: exact string match
+        if (!matched && value.includes(capturedHTML)) {
           newVal = value.replace(capturedHTML, data.enhanced_code);
           matched = true;
         }
-        // Strategy 2: normalized whitespace
+
+        // Strategy 3: normalized whitespace
         if (!matched) {
           const norm = capturedHTML.replace(/\s+/g, " ").trim();
           const escaped = norm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -557,7 +731,8 @@ export default function HtmlBlogEditor({
             matched = true;
           }
         }
-        // Strategy 3: flexible tag matching
+
+        // Strategy 4: flexible tag matching
         if (!matched) {
           const escaped = capturedHTML.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           const flex = escaped.split(/\s+/).join("\\s*(?:<[^>]*>\\s*)*");
@@ -568,6 +743,19 @@ export default function HtmlBlogEditor({
             matched = true;
           }
         }
+
+        // Strategy 5: Use source range even if content slightly changed (fuzzy)
+        if (!matched && capturedSourceRange) {
+          const { start, end } = capturedSourceRange;
+          if (start >= 0 && end <= value.length && start < end) {
+            newVal =
+              value.substring(0, start) +
+              data.enhanced_code +
+              value.substring(end);
+            matched = true;
+          }
+        }
+
         if (!matched) {
           alert(
             "Could not locate the section in the source to replace. " +
@@ -581,7 +769,14 @@ export default function HtmlBlogEditor({
           return;
         }
         onChange(newVal);
-        cancelEnhance();
+        // Stay in fullscreen so user can see the result
+        setStartPt(null);
+        setEndPt(null);
+        setMousePos(null);
+        setCapturedHTML("");
+        setCapturedSourceRange(null);
+        setEnhanceInstructions("");
+        setEnhanceStep("fullscreen");
       } else {
         if (res.status === 429) {
           const msg = data.retry_after_seconds
@@ -688,7 +883,7 @@ export default function HtmlBlogEditor({
 
       {/* Full-screen Section Enhance — rendered via portal */}
       {typeof document !== "undefined" &&
-        ["fullscreen", "marking", "placed", "confirming"].includes(
+        ["fullscreen", "marking", "placed", "confirming", "enhancing"].includes(
           enhanceStep,
         ) &&
         createPortal(
@@ -699,7 +894,7 @@ export default function HtmlBlogEditor({
               zIndex: 99999,
               display: "flex",
               flexDirection: "column",
-              background: "#0f172a",
+              background: "#ffffff",
             }}
           >
             {/* ── Top Toolbar ── */}
@@ -728,6 +923,8 @@ export default function HtmlBlogEditor({
                     "👆 Now click on the OPPOSITE corner"}
                   {enhanceStep === "confirming" &&
                     "✅ Section captured! Enhance or redraw."}
+                  {enhanceStep === "enhancing" &&
+                    "⏳ AI is enhancing the selected section…"}
                 </span>
               </div>
 
@@ -852,9 +1049,38 @@ export default function HtmlBlogEditor({
                   </>
                 )}
 
-                {/* Always: Cancel */}
+                {/* Enhancing step: show spinner in toolbar */}
+                {enhanceStep === "enhancing" && (
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <span
+                      style={{
+                        width: 18,
+                        height: 18,
+                        border: "2px solid rgba(255,255,255,0.3)",
+                        borderTopColor: "#fff",
+                        borderRadius: "50%",
+                        display: "inline-block",
+                        animation: "spin 0.8s linear infinite",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: "#a5b4fc",
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Processing…
+                    </span>
+                  </div>
+                )}
+
+                {/* Always: Cancel (disabled during enhancing) */}
                 <button
                   onClick={cancelEnhance}
+                  disabled={enhanceStep === "enhancing"}
                   style={{
                     padding: "9px 18px",
                     background: "rgba(239,68,68,0.15)",
@@ -863,7 +1089,9 @@ export default function HtmlBlogEditor({
                     fontSize: 13,
                     fontWeight: 700,
                     border: "1px solid rgba(239,68,68,0.25)",
-                    cursor: "pointer",
+                    cursor:
+                      enhanceStep === "enhancing" ? "not-allowed" : "pointer",
+                    opacity: enhanceStep === "enhancing" ? 0.4 : 1,
                   }}
                 >
                   ✕ Cancel
@@ -883,6 +1111,7 @@ export default function HtmlBlogEditor({
                 flex: 1,
                 overflow: "auto",
                 position: "relative",
+                background: "#fff",
                 cursor:
                   enhanceStep === "marking" || enhanceStep === "placed"
                     ? "crosshair"
@@ -892,7 +1121,7 @@ export default function HtmlBlogEditor({
               {/* Iframe rendered at full document height so user can scroll */}
               <iframe
                 ref={enhanceIframeRef}
-                srcDoc={`<style>html{overflow:hidden}body{margin:0}</style>${value}`}
+                srcDoc={`<style>html{overflow:hidden}body{margin:0;background:#fff}</style>${value}`}
                 style={{
                   width: "100%",
                   minHeight: "200vh",
@@ -900,6 +1129,7 @@ export default function HtmlBlogEditor({
                   border: "none",
                   display: "block",
                   pointerEvents: "none",
+                  background: "#fff",
                 }}
                 sandbox="allow-scripts allow-same-origin"
                 title="Enhance Preview"
@@ -966,8 +1196,8 @@ export default function HtmlBlogEditor({
                   ) : null;
                 })()}
 
-              {/* Confirmed rectangle */}
-              {enhanceStep === "confirming" &&
+              {/* Confirmed rectangle (visible during confirming and enhancing) */}
+              {(enhanceStep === "confirming" || enhanceStep === "enhancing") &&
                 startPt &&
                 endPt &&
                 (() => {
@@ -1072,6 +1302,171 @@ export default function HtmlBlogEditor({
                   Now click on the OPPOSITE corner to complete selection
                 </div>
               )}
+
+              {/* Enhancing overlay — shows AI working animation over the selected area */}
+              {enhanceStep === "enhancing" && (() => {
+                const box = startPt && endPt ? getBox(startPt, endPt) : null;
+                return (
+                  <>
+                    {/* Semi-transparent overlay on entire page */}
+                    <div
+                      style={{
+                        position: "fixed",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.3)",
+                        backdropFilter: "blur(2px)",
+                        zIndex: 25,
+                        pointerEvents: "none",
+                      }}
+                    />
+
+                    {/* Glowing border around the selected area */}
+                    {box && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: box.x - 4,
+                          top: box.y - 4,
+                          width: box.w + 8,
+                          height: box.h + 8,
+                          border: "3px solid #8b5cf6",
+                          borderRadius: 14,
+                          zIndex: 30,
+                          pointerEvents: "none",
+                          animation: "enhancePulse 2s ease-in-out infinite",
+                          boxShadow: "0 0 40px rgba(139,92,246,0.4), inset 0 0 40px rgba(139,92,246,0.05)",
+                        }}
+                      >
+                        {/* Scanning line animation */}
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            height: 3,
+                            background: "linear-gradient(90deg, transparent, #8b5cf6, #a78bfa, #8b5cf6, transparent)",
+                            borderRadius: 2,
+                            animation: "scanLine 2s ease-in-out infinite",
+                            opacity: 0.8,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* AI Working card — positioned below the selection */}
+                    <div
+                      style={{
+                        position: box ? "absolute" : "fixed",
+                        ...(box
+                          ? {
+                              left: Math.max(10, box.x + box.w / 2 - 175),
+                              top: box.y + box.h + 20,
+                            }
+                          : {
+                              bottom: 40,
+                              left: "50%",
+                              transform: "translateX(-50%)",
+                            }),
+                        width: 350,
+                        background: "#1e293b",
+                        borderRadius: 16,
+                        padding: "16px 20px",
+                        zIndex: 35,
+                        pointerEvents: "none",
+                        boxShadow: "0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.3)",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                        <div
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: "50%",
+                            background: "linear-gradient(135deg, #7c3aed, #6366f1)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <span style={{ fontSize: 18 }}>✨</span>
+                        </div>
+                        <div>
+                          <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>
+                            AI is enhancing this section
+                          </div>
+                          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>
+                            Improving layout, spacing & design…
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div
+                        style={{
+                          height: 4,
+                          background: "rgba(139,92,246,0.15)",
+                          borderRadius: 4,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: "100%",
+                            background: "linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed)",
+                            borderRadius: 4,
+                            animation: "progressSlide 2s ease-in-out infinite",
+                            width: "40%",
+                          }}
+                        />
+                      </div>
+
+                      {/* Enhancement steps indicator */}
+                      <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                        {["Layout", "Spacing", "Typography", "Effects"].map((step, i) => (
+                          <div
+                            key={step}
+                            style={{
+                              padding: "3px 10px",
+                              borderRadius: 8,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              background: "rgba(139,92,246,0.15)",
+                              color: "#a78bfa",
+                              animation: `fadeStep 2.5s ease-in-out infinite`,
+                              animationDelay: `${i * 0.5}s`,
+                            }}
+                          >
+                            {step}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <style>{`
+                      @keyframes spin { to { transform: rotate(360deg) } }
+                      @keyframes enhancePulse {
+                        0%, 100% { border-color: #8b5cf6; box-shadow: 0 0 30px rgba(139,92,246,0.3); }
+                        50% { border-color: #a78bfa; box-shadow: 0 0 50px rgba(139,92,246,0.5); }
+                      }
+                      @keyframes scanLine {
+                        0% { top: 0; opacity: 0; }
+                        10% { opacity: 0.8; }
+                        90% { opacity: 0.8; }
+                        100% { top: calc(100% - 3px); opacity: 0; }
+                      }
+                      @keyframes progressSlide {
+                        0% { transform: translateX(-100%); }
+                        100% { transform: translateX(350%); }
+                      }
+                      @keyframes fadeStep {
+                        0%, 100% { opacity: 0.4; }
+                        30%, 70% { opacity: 1; background: rgba(139,92,246,0.3); }
+                      }
+                    `}</style>
+                  </>
+                );
+              })()}
             </div>
           </div>,
           document.body,
@@ -1212,41 +1607,6 @@ export default function HtmlBlogEditor({
           </div>
         </div>
       )}
-
-      {/* ── Enhancing spinner modal ── */}
-      {typeof document !== "undefined" &&
-        enhanceStep === "enhancing" &&
-        createPortal(
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 99999,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "rgba(0,0,0,0.5)",
-              backdropFilter: "blur(4px)",
-            }}
-          >
-            <div className="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl text-center">
-              <div
-                className="w-14 h-14 mx-auto mb-4 rounded-full animate-spin"
-                style={{
-                  border: "3px solid #e9d5ff",
-                  borderTopColor: "#7c3aed",
-                }}
-              />
-              <h3 className="text-lg font-bold text-slate-900 mb-1">
-                Enhancing Section…
-              </h3>
-              <p className="text-slate-500 text-sm">
-                AI is improving the selected design
-              </p>
-            </div>
-          </div>,
-          document.body,
-        )}
     </div>
   );
 }
