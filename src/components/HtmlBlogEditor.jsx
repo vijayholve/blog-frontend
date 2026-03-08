@@ -1304,146 +1304,181 @@ export default function HtmlBlogEditor({
               )}
 
               {/* Enhancing overlay — shows AI working animation over the selected area */}
-              {enhanceStep === "enhancing" && (() => {
-                const box = startPt && endPt ? getBox(startPt, endPt) : null;
-                return (
-                  <>
-                    {/* Semi-transparent overlay on entire page */}
-                    <div
-                      style={{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.3)",
-                        backdropFilter: "blur(2px)",
-                        zIndex: 25,
-                        pointerEvents: "none",
-                      }}
-                    />
-
-                    {/* Glowing border around the selected area */}
-                    {box && (
+              {enhanceStep === "enhancing" &&
+                (() => {
+                  const box = startPt && endPt ? getBox(startPt, endPt) : null;
+                  return (
+                    <>
+                      {/* Semi-transparent overlay on entire page */}
                       <div
                         style={{
-                          position: "absolute",
-                          left: box.x - 4,
-                          top: box.y - 4,
-                          width: box.w + 8,
-                          height: box.h + 8,
-                          border: "3px solid #8b5cf6",
-                          borderRadius: 14,
-                          zIndex: 30,
+                          position: "fixed",
+                          inset: 0,
+                          background: "rgba(0,0,0,0.3)",
+                          backdropFilter: "blur(2px)",
+                          zIndex: 25,
                           pointerEvents: "none",
-                          animation: "enhancePulse 2s ease-in-out infinite",
-                          boxShadow: "0 0 40px rgba(139,92,246,0.4), inset 0 0 40px rgba(139,92,246,0.05)",
                         }}
-                      >
-                        {/* Scanning line animation */}
+                      />
+
+                      {/* Glowing border around the selected area */}
+                      {box && (
                         <div
                           style={{
                             position: "absolute",
-                            left: 0,
-                            right: 0,
-                            height: 3,
-                            background: "linear-gradient(90deg, transparent, #8b5cf6, #a78bfa, #8b5cf6, transparent)",
-                            borderRadius: 2,
-                            animation: "scanLine 2s ease-in-out infinite",
-                            opacity: 0.8,
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {/* AI Working card — positioned below the selection */}
-                    <div
-                      style={{
-                        position: box ? "absolute" : "fixed",
-                        ...(box
-                          ? {
-                              left: Math.max(10, box.x + box.w / 2 - 175),
-                              top: box.y + box.h + 20,
-                            }
-                          : {
-                              bottom: 40,
-                              left: "50%",
-                              transform: "translateX(-50%)",
-                            }),
-                        width: 350,
-                        background: "#1e293b",
-                        borderRadius: 16,
-                        padding: "16px 20px",
-                        zIndex: 35,
-                        pointerEvents: "none",
-                        boxShadow: "0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.3)",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                        <div
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: "50%",
-                            background: "linear-gradient(135deg, #7c3aed, #6366f1)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexShrink: 0,
+                            left: box.x - 4,
+                            top: box.y - 4,
+                            width: box.w + 8,
+                            height: box.h + 8,
+                            border: "3px solid #8b5cf6",
+                            borderRadius: 14,
+                            zIndex: 30,
+                            pointerEvents: "none",
+                            animation: "enhancePulse 2s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 40px rgba(139,92,246,0.4), inset 0 0 40px rgba(139,92,246,0.05)",
                           }}
                         >
-                          <span style={{ fontSize: 18 }}>✨</span>
+                          {/* Scanning line animation */}
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              right: 0,
+                              height: 3,
+                              background:
+                                "linear-gradient(90deg, transparent, #8b5cf6, #a78bfa, #8b5cf6, transparent)",
+                              borderRadius: 2,
+                              animation: "scanLine 2s ease-in-out infinite",
+                              opacity: 0.8,
+                            }}
+                          />
                         </div>
-                        <div>
-                          <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>
-                            AI is enhancing this section
-                          </div>
-                          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>
-                            Improving layout, spacing & design…
-                          </div>
-                        </div>
-                      </div>
+                      )}
 
-                      {/* Progress bar */}
+                      {/* AI Working card — positioned below the selection */}
                       <div
                         style={{
-                          height: 4,
-                          background: "rgba(139,92,246,0.15)",
-                          borderRadius: 4,
-                          overflow: "hidden",
+                          position: box ? "absolute" : "fixed",
+                          ...(box
+                            ? {
+                                left: Math.max(10, box.x + box.w / 2 - 175),
+                                top: box.y + box.h + 20,
+                              }
+                            : {
+                                bottom: 40,
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                              }),
+                          width: 350,
+                          background: "#1e293b",
+                          borderRadius: 16,
+                          padding: "16px 20px",
+                          zIndex: 35,
+                          pointerEvents: "none",
+                          boxShadow:
+                            "0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.3)",
                         }}
                       >
                         <div
                           style={{
-                            height: "100%",
-                            background: "linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed)",
-                            borderRadius: 4,
-                            animation: "progressSlide 2s ease-in-out infinite",
-                            width: "40%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                            marginBottom: 12,
                           }}
-                        />
-                      </div>
-
-                      {/* Enhancement steps indicator */}
-                      <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                        {["Layout", "Spacing", "Typography", "Effects"].map((step, i) => (
+                        >
                           <div
-                            key={step}
                             style={{
-                              padding: "3px 10px",
-                              borderRadius: 8,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              background: "rgba(139,92,246,0.15)",
-                              color: "#a78bfa",
-                              animation: `fadeStep 2.5s ease-in-out infinite`,
-                              animationDelay: `${i * 0.5}s`,
+                              width: 36,
+                              height: 36,
+                              borderRadius: "50%",
+                              background:
+                                "linear-gradient(135deg, #7c3aed, #6366f1)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
                             }}
                           >
-                            {step}
+                            <span style={{ fontSize: 18 }}>✨</span>
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                          <div>
+                            <div
+                              style={{
+                                color: "#fff",
+                                fontWeight: 700,
+                                fontSize: 14,
+                              }}
+                            >
+                              AI is enhancing this section
+                            </div>
+                            <div
+                              style={{
+                                color: "#94a3b8",
+                                fontSize: 12,
+                                marginTop: 2,
+                              }}
+                            >
+                              Improving layout, spacing & design…
+                            </div>
+                          </div>
+                        </div>
 
-                    <style>{`
+                        {/* Progress bar */}
+                        <div
+                          style={{
+                            height: 4,
+                            background: "rgba(139,92,246,0.15)",
+                            borderRadius: 4,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              background:
+                                "linear-gradient(90deg, #7c3aed, #a78bfa, #7c3aed)",
+                              borderRadius: 4,
+                              animation:
+                                "progressSlide 2s ease-in-out infinite",
+                              width: "40%",
+                            }}
+                          />
+                        </div>
+
+                        {/* Enhancement steps indicator */}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            marginTop: 10,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {["Layout", "Spacing", "Typography", "Effects"].map(
+                            (step, i) => (
+                              <div
+                                key={step}
+                                style={{
+                                  padding: "3px 10px",
+                                  borderRadius: 8,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  background: "rgba(139,92,246,0.15)",
+                                  color: "#a78bfa",
+                                  animation: `fadeStep 2.5s ease-in-out infinite`,
+                                  animationDelay: `${i * 0.5}s`,
+                                }}
+                              >
+                                {step}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      </div>
+
+                      <style>{`
                       @keyframes spin { to { transform: rotate(360deg) } }
                       @keyframes enhancePulse {
                         0%, 100% { border-color: #8b5cf6; box-shadow: 0 0 30px rgba(139,92,246,0.3); }
@@ -1464,9 +1499,9 @@ export default function HtmlBlogEditor({
                         30%, 70% { opacity: 1; background: rgba(139,92,246,0.3); }
                       }
                     `}</style>
-                  </>
-                );
-              })()}
+                    </>
+                  );
+                })()}
             </div>
           </div>,
           document.body,

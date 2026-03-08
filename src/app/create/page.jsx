@@ -76,9 +76,18 @@ export default function CreatePost() {
   const [fsActiveCmd, setFsActiveCmd] = useState("");
   const [fsPanelOpen, setFsPanelOpen] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [fsSidebarOpen, setFsSidebarOpen] = useState(true);
+  const [sectionMode, setSectionMode] = useState("idle"); // idle | marking | placed | enhancing
+  const [selRect, setSelRect] = useState(null);
+  const [selStartPt, setSelStartPt] = useState(null);
+  const [capturedSectionHTML, setCapturedSectionHTML] = useState("");
+  const [capturedSectionRange, setCapturedSectionRange] = useState(null);
+  const [isEnhancingSection, setIsEnhancingSection] = useState(false);
+  const [enhanceSectionInstr, setEnhanceSectionInstr] = useState("");
   const fsCodeRef = useRef(null);
   const fsPreviewIframeRef = useRef(null);
   const graphicalFsIframeRef = useRef(null);
+  const sectionOverlayRef = useRef(null);
 
   // Helper to attach mouseup listener inside an iframe document
   const attachFsIframeMouseup = useCallback((iframe) => {
@@ -268,6 +277,311 @@ export default function CreatePost() {
     setFsSelectedText("");
     setFsRefinedText("");
     setFsPanelOpen(false);
+  };
+
+  // ── Section Enhance helpers (fullscreen) ──
+  const findClosingTagFs = (tagName, source, startIdx, openLen) => {
+    const selfClosing = [
+      "br",
+      "hr",
+      "img",
+      "input",
+      "meta",
+      "link",
+      "area",
+      "base",
+      "col",
+      "embed",
+      "source",
+      "track",
+      "wbr",
+    ];
+    if (selfClosing.includes(tagName.toLowerCase())) {
+      return {
+        section: source.substring(startIdx, startIdx + openLen),
+        start: startIdx,
+        end: startIdx + openLen,
+      };
+    }
+    let depth = 1,
+      i = startIdx + openLen;
+    const openRx = new RegExp(`<${tagName}[\\s>/]`, "gi");
+    const closeRx = new RegExp(`</${tagName}\\s*>`, "gi");
+    while (depth > 0 && i < source.length) {
+      openRx.lastIndex = i;
+      closeRx.lastIndex = i;
+      const nextOpen = openRx.exec(source);
+      const nextClose = closeRx.exec(source);
+      if (!nextClose) break;
+      if (nextOpen && nextOpen.index < nextClose.index) {
+        depth++;
+        i = nextOpen.index + nextOpen[0].length;
+      } else {
+        depth--;
+        if (depth === 0) {
+          const end = nextClose.index + nextClose[0].length;
+          return {
+            section: source.substring(startIdx, end),
+            start: startIdx,
+            end,
+          };
+        }
+        i = nextClose.index + nextClose[0].length;
+      }
+    }
+    return null;
+  };
+
+  const findSourceSectionFs = (target, tagName, sourceValue) => {
+    if (target.id) {
+      const rx = new RegExp(
+        `<${tagName}[^>]*\\bid=["']${target.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'][^>]*>`,
+        "i",
+      );
+      const m = sourceValue.match(rx);
+      if (m) {
+        const r = findClosingTagFs(tagName, sourceValue, m.index, m[0].length);
+        if (r) return r;
+      }
+    }
+    if (target.className && typeof target.className === "string") {
+      const cls = target.className.split(/\s+/)[0];
+      if (cls) {
+        const rx = new RegExp(
+          `<${tagName}[^>]*\\bclass=["'][^"']*\\b${cls.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[^"']*["'][^>]*>`,
+          "i",
+        );
+        const m = sourceValue.match(rx);
+        if (m) {
+          const r = findClosingTagFs(
+            tagName,
+            sourceValue,
+            m.index,
+            m[0].length,
+          );
+          if (r) return r;
+        }
+      }
+    }
+    const text = target.textContent?.trim() || "";
+    if (text.length > 10) {
+      const snippet = text
+        .substring(0, 60)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\s+/g, "\\s+");
+      const allRx = new RegExp(`<${tagName}[^>]*>`, "gi");
+      let m;
+      while ((m = allRx.exec(sourceValue))) {
+        const r = findClosingTagFs(tagName, sourceValue, m.index, m[0].length);
+        if (r && new RegExp(snippet, "si").test(r.section)) return r;
+      }
+    }
+    const html = target.outerHTML;
+    const idx = sourceValue.indexOf(html);
+    if (idx !== -1)
+      return { section: html, start: idx, end: idx + html.length };
+    return null;
+  };
+
+  const startSectionEnhance = () => {
+    if (!content || content.trim().length < 50) {
+      alert("Generate some content first.");
+      return;
+    }
+    setFullscreenTab("preview");
+    setSectionMode("marking");
+    setSelRect(null);
+    setSelStartPt(null);
+    setCapturedSectionHTML("");
+    setCapturedSectionRange(null);
+    setEnhanceSectionInstr("");
+  };
+
+  const cancelSectionEnhance = () => {
+    setSectionMode("idle");
+    setSelRect(null);
+    setSelStartPt(null);
+    setCapturedSectionHTML("");
+    setCapturedSectionRange(null);
+    setEnhanceSectionInstr("");
+  };
+
+  const handleOverlayMouseDown = (e) => {
+    if (sectionMode !== "marking") return;
+    const r = sectionOverlayRef.current.getBoundingClientRect();
+    setSelStartPt({ x: e.clientX - r.left, y: e.clientY - r.top });
+    setSelRect(null);
+  };
+
+  const handleOverlayMouseMove = (e) => {
+    if (!selStartPt || sectionMode !== "marking") return;
+    const r = sectionOverlayRef.current.getBoundingClientRect();
+    const cx = e.clientX - r.left,
+      cy = e.clientY - r.top;
+    setSelRect({
+      x: Math.min(selStartPt.x, cx),
+      y: Math.min(selStartPt.y, cy),
+      w: Math.abs(cx - selStartPt.x),
+      h: Math.abs(cy - selStartPt.y),
+    });
+  };
+
+  const handleOverlayMouseUp = () => {
+    if (sectionMode !== "marking") return;
+    setSelStartPt(null);
+    if (!selRect || selRect.w < 20 || selRect.h < 20) {
+      setSelRect(null);
+      return;
+    }
+    const iframe = fsPreviewIframeRef.current;
+    if (!iframe) return;
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc || !doc.body) return;
+      const sel = {
+        left: selRect.x,
+        top: selRect.y,
+        right: selRect.x + selRect.w,
+        bottom: selRect.y + selRect.h,
+      };
+      const hits = Array.from(doc.body.querySelectorAll("*")).filter((el) => {
+        const r = el.getBoundingClientRect();
+        return (
+          r.width > 0 &&
+          r.height > 0 &&
+          r.left < sel.right &&
+          r.right > sel.left &&
+          r.top < sel.bottom &&
+          r.bottom > sel.top
+        );
+      });
+      if (!hits.length) {
+        alert("No elements found. Try a larger selection.");
+        setSelRect(null);
+        return;
+      }
+      const topLevel = hits.filter(
+        (el) => !hits.some((o) => o !== el && o.contains(el)),
+      );
+      let target = topLevel[0];
+      if (topLevel.length > 1) {
+        for (let i = 1; i < topLevel.length; i++) {
+          while (target && !target.contains(topLevel[i]))
+            target = target.parentElement;
+        }
+        if (!target || target === doc.body || target === doc.documentElement)
+          target = topLevel[0].parentElement || topLevel[0];
+      }
+      const tagName = target.tagName.toLowerCase();
+      let result = findSourceSectionFs(target, tagName, content);
+      if (
+        !result &&
+        target.parentElement &&
+        target.parentElement !== doc.body
+      ) {
+        result = findSourceSectionFs(
+          target.parentElement,
+          target.parentElement.tagName.toLowerCase(),
+          content,
+        );
+      }
+      if (result) {
+        setCapturedSectionHTML(result.section);
+        setCapturedSectionRange({ start: result.start, end: result.end });
+      } else {
+        const html = target.outerHTML;
+        setCapturedSectionHTML(html);
+        const idx = content.indexOf(html);
+        setCapturedSectionRange(
+          idx !== -1 ? { start: idx, end: idx + html.length } : null,
+        );
+      }
+      setSectionMode("placed");
+    } catch (err) {
+      console.error("Capture error:", err);
+      alert("Could not capture elements. Try again.");
+      setSelRect(null);
+    }
+  };
+
+  const handleConfirmSectionEnhance = async () => {
+    if (!capturedSectionHTML) return;
+    setSectionMode("enhancing");
+    setIsEnhancingSection(true);
+    const token = getAuthToken();
+    try {
+      let instr = enhanceSectionInstr.trim();
+      if (
+        !/colou?r|theme|background|bg|gradient|dark|light|blue|red|green/i.test(
+          instr,
+        )
+      ) {
+        instr =
+          (instr ? instr + ". " : "") +
+          "IMPORTANT: Preserve the existing color scheme and background colors.";
+      }
+      const res = await fetch("http://127.0.0.1:8000/api/enhance-section/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          html_content: capturedSectionHTML,
+          content_type: "blog",
+          instructions: instr,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.enhanced_code) {
+        let newContent = content,
+          matched = false;
+        if (capturedSectionRange) {
+          const { start, end } = capturedSectionRange;
+          if (content.substring(start, end) === capturedSectionHTML) {
+            newContent =
+              content.substring(0, start) +
+              data.enhanced_code +
+              content.substring(end);
+            matched = true;
+          }
+        }
+        if (!matched && content.includes(capturedSectionHTML)) {
+          newContent = content.replace(capturedSectionHTML, data.enhanced_code);
+          matched = true;
+        }
+        if (!matched) {
+          const norm = capturedSectionHTML.replace(/\s+/g, " ").trim();
+          const escaped = norm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const rx = new RegExp(escaped.split(" ").join("\\s+"), "s");
+          const m = content.match(rx);
+          if (m) {
+            newContent = content.replace(m[0], data.enhanced_code);
+            matched = true;
+          }
+        }
+        if (matched) setContent(newContent);
+        else {
+          alert(
+            "Could not locate the section. Enhanced HTML copied to clipboard.",
+          );
+          navigator.clipboard.writeText(data.enhanced_code);
+        }
+      } else {
+        if (res.status === 429) alert("Rate limited. Please wait.");
+        else alert(data.error || "Section enhance failed.");
+      }
+    } catch (err) {
+      console.error("Section enhance error:", err);
+      alert("Error connecting to AI service.");
+    } finally {
+      setSectionMode("idle");
+      setIsEnhancingSection(false);
+      setSelRect(null);
+      setCapturedSectionHTML("");
+      setCapturedSectionRange(null);
+      setEnhanceSectionInstr("");
+    }
   };
 
   // Enhance overall design of the blog HTML
@@ -554,15 +868,19 @@ export default function CreatePost() {
       {/* Fullscreen Modal */}
       {isFullscreen && (
         <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col">
-          {/* Fullscreen Header */}
-          <div className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          {/* Fullscreen Workspace Header */}
+          <div className="bg-slate-800 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between gap-3">
+            {/* Left: Back + Title */}
+            <div className="flex items-center gap-3 shrink-0">
               <button
-                onClick={() => setIsFullscreen(false)}
-                className="text-slate-400 text-white transition flex items-center gap-2"
+                onClick={() => {
+                  setIsFullscreen(false);
+                  cancelSectionEnhance();
+                }}
+                className="text-slate-400 hover:text-white transition flex items-center gap-1.5 text-sm"
               >
                 <svg
-                  className="w-5 h-5"
+                  className="w-4 h-4"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -576,182 +894,417 @@ export default function CreatePost() {
                 </svg>
                 Back
               </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setFullscreenTab("prompt")}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    fullscreenTab === "prompt"
-                      ? "bg-blue-600 text-white"
-                      : "text-slate-400 text-white"
-                  }`}
-                >
-                  AI Prompt
-                </button>
-                <button
-                  onClick={() => setFullscreenTab("preview")}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    fullscreenTab === "preview"
-                      ? "bg-blue-600 text-white"
-                      : "text-slate-400 text-white"
-                  }`}
-                >
-                  Live Output
-                </button>
-                <button
-                  onClick={() => setFullscreenTab("code")}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                    fullscreenTab === "code"
-                      ? "bg-blue-600 text-white"
-                      : "text-slate-400 text-white"
-                  }`}
-                >
-                  HTML Source
-                </button>
-                {wantGraphical && (
-                  <button
-                    onClick={() => setFullscreenTab("graphical")}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                      fullscreenTab === "graphical"
-                        ? "bg-purple-600 text-white"
-                        : "text-slate-400 text-white"
-                    }`}
-                  >
-                    📊 Infographic
-                  </button>
-                )}
-              </div>
+              <div className="w-px h-5 bg-slate-700" />
+              <span className="text-white font-bold text-sm hidden md:inline">
+                Workspace
+              </span>
             </div>
-            {/* Enhance Design Button in Fullscreen */}
-            {content && content.trim().length > 50 && (
+
+            {/* Center: Tabs */}
+            <div className="flex gap-1 bg-slate-700/50 rounded-lg p-0.5">
               <button
-                onClick={handleEnhanceDesign}
-                disabled={isEnhancing}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-all hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
-                }}
+                onClick={() => setFullscreenTab("preview")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${fullscreenTab === "preview" ? "bg-blue-600 text-white shadow" : "text-slate-300 hover:text-white hover:bg-slate-700/50"}`}
               >
-                {isEnhancing ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    Enhancing…
-                  </>
-                ) : (
-                  <>🎨 Enhance Design</>
-                )}
+                ▶ Preview
               </button>
-            )}
+              <button
+                onClick={() => setFullscreenTab("code")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${fullscreenTab === "code" ? "bg-blue-600 text-white shadow" : "text-slate-300 hover:text-white hover:bg-slate-700/50"}`}
+              >
+                {"</>"} Code
+              </button>
+              {wantGraphical && (
+                <button
+                  onClick={() => setFullscreenTab("graphical")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${fullscreenTab === "graphical" ? "bg-purple-600 text-white shadow" : "text-slate-300 hover:text-white hover:bg-slate-700/50"}`}
+                >
+                  📊 Graphic
+                </button>
+              )}
+            </div>
+
+            {/* Right: Enhance + Publish + Sidebar Toggle */}
+            <div className="flex items-center gap-2 shrink-0">
+              {content && content.trim().length > 50 && (
+                <>
+                  <button
+                    onClick={startSectionEnhance}
+                    disabled={isEnhancingSection || sectionMode !== "idle"}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{
+                      background: "linear-gradient(135deg, #f59e0b, #f97316)",
+                    }}
+                  >
+                    🎯 Section
+                  </button>
+                  <button
+                    onClick={handleEnhanceDesign}
+                    disabled={isEnhancing}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{
+                      background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
+                    }}
+                  >
+                    {isEnhancing ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />{" "}
+                        Enhancing…
+                      </>
+                    ) : (
+                      <>🎨 Full Page</>
+                    )}
+                  </button>
+                </>
+              )}
+              <div className="w-px h-5 bg-slate-700" />
+              <button
+                onClick={handleSubmit}
+                disabled={isPublishing || !content || !title || !excerpt}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition disabled:opacity-50"
+              >
+                {isPublishing ? "⏳..." : "🚀 Publish"}
+              </button>
+              <button
+                onClick={() => setFsSidebarOpen((v) => !v)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition"
+                title={fsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d={
+                      fsSidebarOpen
+                        ? "M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                        : "M13 5l7 7-7 7M5 5l7 7-7 7"
+                    }
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          {/* Fullscreen Content */}
-          <div className="flex-1 overflow-auto">
-            {fullscreenTab === "prompt" && (
-              <div className="max-w-4xl mx-auto p-8">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-2xl font-bold text-white">
-                    AI Content Generator
-                  </h2>
+          {/* Section Enhance Banner */}
+          {sectionMode !== "idle" && (
+            <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 text-amber-300 text-sm">
+                {sectionMode === "marking" && (
+                  <>
+                    <span className="animate-pulse">🎯</span> Draw a rectangle
+                    over the section to enhance
+                  </>
+                )}
+                {sectionMode === "placed" && (
+                  <>
+                    <span>✅</span> Section captured — review below
+                  </>
+                )}
+                {sectionMode === "enhancing" && (
+                  <>
+                    <span className="w-3 h-3 border-2 border-amber-300/40 border-t-amber-300 rounded-full animate-spin inline-block" />{" "}
+                    Enhancing section…
+                  </>
+                )}
+              </div>
+              <button
+                onClick={cancelSectionEnhance}
+                className="text-xs text-amber-400 hover:text-white bg-amber-500/20 px-2.5 py-1 rounded transition"
+              >
+                ✕ Cancel
+              </button>
+            </div>
+          )}
+
+          {/* Body: Sidebar + Content */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Sidebar */}
+            {fsSidebarOpen && (
+              <div className="w-[300px] bg-slate-800/80 border-r border-slate-700 overflow-y-auto shrink-0">
+                {/* AI Prompt */}
+                <div className="p-3 border-b border-slate-700/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      🤖 AI Prompt
+                    </h4>
+                    <button
+                      onClick={() => setShowExamples(true)}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 transition"
+                    >
+                      📚 Examples
+                    </button>
+                  </div>
+                  <textarea
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="Describe your blog topic..."
+                    className="w-full h-20 p-2.5 rounded-lg bg-slate-900/80 text-white border border-slate-700 text-xs resize-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
+                  />
                   <button
-                    onClick={() => setShowExamples(true)}
-                    className="text-sm text-blue-300 hover:text-blue-200 transition"
+                    onClick={handleAIGenerate}
+                    disabled={isGenerating}
+                    className="mt-2 w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-xs font-bold hover:from-blue-700 hover:to-indigo-700 transition disabled:opacity-50"
                   >
-                    📚 Browse Prompts
+                    {isGenerating ? "⏳ Generating..." : "✨ Generate Blog"}
                   </button>
                 </div>
 
-                <textarea
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Ex: Write a comprehensive guide about sustainable living practices in 2026..."
-                  className="w-full h-[calc(100vh-350px)] p-6 rounded-xl bg-slate-800 text-white border border-slate-700 focus:ring-2 focus:ring-blue-500 text-base"
-                />
-                <button
-                  onClick={handleAIGenerate}
-                  disabled={isGenerating}
-                  className="mt-4 w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition disabled:opacity-50"
-                >
-                  {isGenerating ? "AI is Coding..." : "Generate with AI"}
-                </button>
-              </div>
-            )}
-
-            {fullscreenTab === "preview" && (
-              <div className="h-full bg-white overflow-hidden">
-                <iframe
-                  ref={fsPreviewIframeRef}
-                  srcDoc={content}
-                  className="w-full h-full border-0"
-                  sandbox="allow-scripts allow-same-origin"
-                  title="Fullscreen Preview"
-                />
-              </div>
-            )}
-
-            {fullscreenTab === "code" && (
-              <div className="h-full">
-                <textarea
-                  ref={fsCodeRef}
-                  className="w-full h-full p-8 bg-slate-900 text-blue-300 font-mono text-sm outline-none resize-none leading-relaxed"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  onMouseUp={handleFsCodeSelect}
-                  onKeyUp={handleFsCodeSelect}
-                  placeholder="<div class='bg-blue-500 p-10'>...</div>"
-                />
-              </div>
-            )}
-
-            {fullscreenTab === "graphical" && (
-              <div className="h-full flex flex-col">
-                {graphicalContent ? (
-                  <>
-                    {/* Split view: Preview on top, Code below */}
-                    <div className="flex-1 overflow-hidden bg-white">
-                      <iframe
-                        ref={graphicalFsIframeRef}
-                        srcDoc={graphicalContent}
-                        className="w-full h-full border-0"
-                        sandbox="allow-scripts allow-same-origin"
-                        title="Graphical Preview"
-                      />
-                    </div>
-                    <div className="h-[300px] border-t border-slate-700 flex flex-col">
-                      <div className="bg-slate-800 px-4 py-2 flex items-center justify-between border-b border-slate-700">
-                        <span className="text-xs font-medium text-purple-400">
-                          {"</>"} Graphical Source Code
+                {/* Graphical */}
+                <div className="p-3 border-b border-slate-700/50">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={wantGraphical}
+                      onChange={(e) => {
+                        setWantGraphical(e.target.checked);
+                        if (!e.target.checked) setGraphicalContent("");
+                      }}
+                      className="w-3.5 h-3.5 rounded border-slate-600 text-purple-600 focus:ring-purple-500 bg-slate-800"
+                    />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      📊 Graphical
+                    </span>
+                  </label>
+                  {wantGraphical && (
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500">
+                          Describe infographic
                         </span>
                         <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(graphicalContent);
-                            alert("Copied!");
-                          }}
-                          className="text-xs text-slate-400 hover:text-white transition px-2 py-1 rounded hover:bg-slate-700"
+                          onClick={() => setShowGraphicalExamples(true)}
+                          className="text-[10px] text-purple-400 hover:text-purple-300 transition"
                         >
-                          📋 Copy
+                          📚
                         </button>
                       </div>
                       <textarea
-                        className="flex-1 w-full p-4 bg-slate-900 text-purple-300 font-mono text-sm outline-none resize-none leading-relaxed"
-                        value={graphicalContent}
-                        onChange={(e) => setGraphicalContent(e.target.value)}
+                        value={graphicalPrompt}
+                        onChange={(e) => setGraphicalPrompt(e.target.value)}
+                        placeholder="e.g., Show a comparison chart..."
+                        className="w-full h-16 p-2.5 rounded-lg bg-slate-900/80 text-white border border-slate-700 text-xs resize-none focus:ring-1 focus:ring-purple-500 placeholder:text-slate-500"
                       />
+                      <button
+                        onClick={handleGraphicalGenerate}
+                        disabled={isGeneratingGraphical}
+                        className="w-full py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-xs font-bold hover:from-purple-700 hover:to-pink-700 transition disabled:opacity-50"
+                      >
+                        {isGeneratingGraphical
+                          ? "⏳ Generating..."
+                          : "📊 Generate Infographic"}
+                      </button>
                     </div>
-                  </>
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <span className="text-6xl mb-4 block">📊</span>
-                      <p className="text-slate-400 text-lg">
-                        No infographic generated yet.
-                      </p>
-                      <p className="text-slate-300 text-sm mt-2">
-                        Enable the checkbox in the sidebar and generate one.
-                      </p>
+                  )}
+                </div>
+
+                {/* Metadata */}
+                <div className="p-3 border-b border-slate-700/50 space-y-2">
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    📋 Metadata
+                  </h4>
+                  <input
+                    type="text"
+                    placeholder="Post Title"
+                    className="w-full p-2 rounded-lg bg-slate-900/80 text-white border border-slate-700 text-xs focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                  <textarea
+                    placeholder="SEO Excerpt"
+                    className="w-full p-2 rounded-lg bg-slate-900/80 text-white border border-slate-700 text-xs h-14 resize-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
+                    value={excerpt}
+                    onChange={(e) => setExcerpt(e.target.value)}
+                  />
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="w-full p-2 rounded-lg bg-slate-900/80 text-white border border-slate-700 text-xs focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select category...</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div>
+                    <label className="text-[10px] text-slate-500 mb-1 block">
+                      Tags
+                    </label>
+                    <div className="flex flex-wrap gap-1">
+                      {tags.map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => toggleTag(tag.id)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition ${
+                            selectedTags.includes(tag.id)
+                              ? "bg-blue-600 text-white"
+                              : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          }`}
+                        >
+                          {tag.name}
+                        </button>
+                      ))}
                     </div>
+                    {selectedTags.length > 0 && (
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        {selectedTags.length} tag
+                        {selectedTags.length !== 1 ? "s" : ""} selected
+                      </p>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             )}
+
+            {/* Main Content Area */}
+            <div className="flex-1 relative overflow-hidden">
+              {/* Section Enhance Overlay */}
+              {sectionMode === "marking" && fullscreenTab === "preview" && (
+                <div
+                  ref={sectionOverlayRef}
+                  className="absolute inset-0 z-20"
+                  style={{ cursor: "crosshair" }}
+                  onMouseDown={handleOverlayMouseDown}
+                  onMouseMove={handleOverlayMouseMove}
+                  onMouseUp={handleOverlayMouseUp}
+                >
+                  {selRect && (
+                    <div
+                      className="absolute border-2 border-amber-400 bg-amber-400/15 rounded pointer-events-none"
+                      style={{
+                        left: selRect.x,
+                        top: selRect.y,
+                        width: selRect.w,
+                        height: selRect.h,
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Section Enhance Confirmation */}
+              {sectionMode === "placed" && (
+                <div className="absolute inset-x-0 top-0 z-20 bg-slate-800/95 backdrop-blur border-b border-amber-500/30 p-4 space-y-2">
+                  <div className="text-xs text-slate-400 font-medium">
+                    Captured Section:
+                  </div>
+                  <div className="max-h-28 overflow-auto bg-slate-900 rounded-lg p-2.5 text-[10px] text-slate-300 font-mono border border-slate-700 leading-relaxed">
+                    {capturedSectionHTML.length > 500
+                      ? capturedSectionHTML.slice(0, 500) + "…"
+                      : capturedSectionHTML}
+                  </div>
+                  <textarea
+                    value={enhanceSectionInstr}
+                    onChange={(e) => setEnhanceSectionInstr(e.target.value)}
+                    placeholder="Optional: specific instructions (e.g., make more modern, add gradient)..."
+                    className="w-full p-2 rounded-lg bg-slate-900/80 text-white border border-slate-700 text-xs h-12 resize-none focus:ring-1 focus:ring-amber-500 placeholder:text-slate-500"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleConfirmSectionEnhance}
+                      className="flex-1 py-2 rounded-lg text-xs font-bold text-white transition hover:shadow-lg"
+                      style={{
+                        background: "linear-gradient(135deg, #f59e0b, #f97316)",
+                      }}
+                    >
+                      ✨ Enhance This Section
+                    </button>
+                    <button
+                      onClick={cancelSectionEnhance}
+                      className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-600 transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {fullscreenTab === "preview" && (
+                <div className="h-full bg-white overflow-hidden">
+                  <iframe
+                    ref={fsPreviewIframeRef}
+                    srcDoc={content}
+                    className="w-full h-full border-0"
+                    sandbox="allow-scripts allow-same-origin"
+                    title="Fullscreen Preview"
+                  />
+                </div>
+              )}
+
+              {fullscreenTab === "code" && (
+                <div className="h-full">
+                  <textarea
+                    ref={fsCodeRef}
+                    className="w-full h-full p-8 bg-slate-900 text-blue-300 font-mono text-sm outline-none resize-none leading-relaxed"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    onMouseUp={handleFsCodeSelect}
+                    onKeyUp={handleFsCodeSelect}
+                    placeholder="<div class='bg-blue-500 p-10'>...</div>"
+                  />
+                </div>
+              )}
+
+              {fullscreenTab === "graphical" && (
+                <div className="h-full flex flex-col">
+                  {graphicalContent ? (
+                    <>
+                      {/* Split view: Preview on top, Code below */}
+                      <div className="flex-1 overflow-hidden bg-white">
+                        <iframe
+                          ref={graphicalFsIframeRef}
+                          srcDoc={graphicalContent}
+                          className="w-full h-full border-0"
+                          sandbox="allow-scripts allow-same-origin"
+                          title="Graphical Preview"
+                        />
+                      </div>
+                      <div className="h-[300px] border-t border-slate-700 flex flex-col">
+                        <div className="bg-slate-800 px-4 py-2 flex items-center justify-between border-b border-slate-700">
+                          <span className="text-xs font-medium text-purple-400">
+                            {"</>"} Graphical Source Code
+                          </span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(graphicalContent);
+                              alert("Copied!");
+                            }}
+                            className="text-xs text-slate-400 hover:text-white transition px-2 py-1 rounded hover:bg-slate-700"
+                          >
+                            📋 Copy
+                          </button>
+                        </div>
+                        <textarea
+                          className="flex-1 w-full p-4 bg-slate-900 text-purple-300 font-mono text-sm outline-none resize-none leading-relaxed"
+                          value={graphicalContent}
+                          onChange={(e) => setGraphicalContent(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <span className="text-6xl mb-4 block">📊</span>
+                        <p className="text-slate-400 text-lg">
+                          No infographic generated yet.
+                        </p>
+                        <p className="text-slate-300 text-sm mt-2">
+                          Enable the checkbox in the sidebar and generate one.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ── Fullscreen AI Refine Panel ── */}
