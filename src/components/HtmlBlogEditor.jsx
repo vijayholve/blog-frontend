@@ -587,16 +587,24 @@ export default function HtmlBlogEditor({
         right: box.x + box.w,
         bottom: box.y + box.h,
       };
+      // Account for iframe scroll offset so coordinates match
+      const scrollX = iframe.contentWindow?.scrollX || 0;
+      const scrollY = iframe.contentWindow?.scrollY || 0;
       const allEls = Array.from(doc.body.querySelectorAll("*"));
       const hits = allEls.filter((el) => {
         const r = el.getBoundingClientRect();
+        // Offset bounding rect by scroll to get document-level coords
+        const elLeft = r.left + scrollX;
+        const elTop = r.top + scrollY;
+        const elRight = r.right + scrollX;
+        const elBottom = r.bottom + scrollY;
         return (
           r.width > 0 &&
           r.height > 0 &&
-          r.left < sel.right &&
-          r.right > sel.left &&
-          r.top < sel.bottom &&
-          r.bottom > sel.top
+          elLeft < sel.right &&
+          elRight > sel.left &&
+          elTop < sel.bottom &&
+          elBottom > sel.top
         );
       });
       if (!hits.length) {
@@ -611,6 +619,19 @@ export default function HtmlBlogEditor({
         (el) => !hits.some((o) => o !== el && o.contains(el)),
       );
 
+      // Blocklist: never capture these as the target
+      const isBlocklisted = (el) => {
+        if (!el) return true;
+        const tag = el.tagName.toLowerCase();
+        return (
+          tag === "body" ||
+          tag === "html" ||
+          tag === "main" ||
+          el === doc.body ||
+          el === doc.documentElement
+        );
+      };
+
       // Find the best enclosing element
       let target;
       if (topLevel.length === 1) {
@@ -621,8 +642,64 @@ export default function HtmlBlogEditor({
           while (target && !target.contains(topLevel[i]))
             target = target.parentElement;
         }
-        if (!target || target === doc.body || target === doc.documentElement) {
-          target = topLevel[0].parentElement || topLevel[0];
+        // If we ended up at body/html/main, pick the first topLevel element instead
+        if (isBlocklisted(target)) {
+          target = topLevel[0];
+        }
+      }
+
+      // Safety: if target is still blocklisted after all logic, use the first topLevel element
+      if (isBlocklisted(target)) {
+        target = topLevel[0];
+      }
+      // If still blocklisted (e.g. topLevel[0] IS body), pick its largest child that overlaps selection
+      if (isBlocklisted(target)) {
+        const children = Array.from(target.children);
+        const overlapping = children.filter((ch) => {
+          const r = ch.getBoundingClientRect();
+          const elLeft = r.left + scrollX;
+          const elTop = r.top + scrollY;
+          const elRight = r.right + scrollX;
+          const elBottom = r.bottom + scrollY;
+          return (
+            r.width > 0 &&
+            r.height > 0 &&
+            elLeft < sel.right &&
+            elRight > sel.left &&
+            elTop < sel.bottom &&
+            elBottom > sel.top
+          );
+        });
+        if (overlapping.length === 1) {
+          target = overlapping[0];
+        } else if (overlapping.length > 1) {
+          // Pick the one with the most overlap area
+          target = overlapping.reduce((best, el) => {
+            const r = el.getBoundingClientRect();
+            const ox = Math.max(
+              0,
+              Math.min(r.right + scrollX, sel.right) -
+                Math.max(r.left + scrollX, sel.left),
+            );
+            const oy = Math.max(
+              0,
+              Math.min(r.bottom + scrollY, sel.bottom) -
+                Math.max(r.top + scrollY, sel.top),
+            );
+            const area = ox * oy;
+            const br = best.getBoundingClientRect();
+            const bx = Math.max(
+              0,
+              Math.min(br.right + scrollX, sel.right) -
+                Math.max(br.left + scrollX, sel.left),
+            );
+            const by = Math.max(
+              0,
+              Math.min(br.bottom + scrollY, sel.bottom) -
+                Math.max(br.top + scrollY, sel.top),
+            );
+            return area > bx * by ? el : best;
+          }, overlapping[0]);
         }
       }
 
@@ -631,29 +708,70 @@ export default function HtmlBlogEditor({
       // Try to find the source section and its position
       let result = findSourceSection(target, tagName, value);
 
-      // If no match, try parent element
-      if (
-        !result &&
-        target.parentElement &&
-        target.parentElement !== doc.body
-      ) {
-        const parentTag = target.parentElement.tagName.toLowerCase();
-        result = findSourceSection(target.parentElement, parentTag, value);
+      // Walk up the DOM tree trying multiple parent levels
+      if (!result) {
+        let parent = target.parentElement;
+        for (
+          let level = 0;
+          level < 4 &&
+          parent &&
+          parent !== doc.body &&
+          parent !== doc.documentElement;
+          level++
+        ) {
+          result = findSourceSection(
+            parent,
+            parent.tagName.toLowerCase(),
+            value,
+          );
+          if (result) break;
+          parent = parent.parentElement;
+        }
       }
 
       if (result) {
         setCapturedHTML(result.section);
         setCapturedSourceRange({ start: result.start, end: result.end });
       } else {
-        // Last resort: use rendered HTML (may not match for replacement)
+        // Fallback: use the rendered outerHTML BUT find an approximate range in source
         const rendered = target.outerHTML;
         setCapturedHTML(rendered);
-        // Try to find it in source for the range
-        const idx = value.indexOf(rendered);
+
+        // Try direct match first
+        let idx = value.indexOf(rendered);
         if (idx !== -1) {
           setCapturedSourceRange({ start: idx, end: idx + rendered.length });
         } else {
-          setCapturedSourceRange(null);
+          // Find a unique text snippet from the element to locate approximate section in source
+          const textSnippet = (target.textContent || "")
+            .trim()
+            .substring(0, 80);
+          if (textSnippet.length > 10) {
+            const escapedSnippet = textSnippet
+              .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+              .replace(/\s+/g, "\\s+");
+            const snippetRx = new RegExp(escapedSnippet, "si");
+            const sm = value.match(snippetRx);
+            if (sm) {
+              // Walk backward to find enclosing tag start
+              let tagStart = sm.index;
+              while (tagStart > 0 && value[tagStart] !== "<") tagStart--;
+              // Walk forward to find a reasonable enclosing block end
+              const closeTag = `</${tagName}`;
+              let tagEnd = value.indexOf(closeTag, sm.index + sm[0].length);
+              if (tagEnd === -1) tagEnd = sm.index + sm[0].length;
+              else tagEnd = value.indexOf(">", tagEnd) + 1;
+              if (tagEnd > tagStart) {
+                setCapturedSourceRange({ start: tagStart, end: tagEnd });
+              } else {
+                setCapturedSourceRange(null);
+              }
+            } else {
+              setCapturedSourceRange(null);
+            }
+          } else {
+            setCapturedSourceRange(null);
+          }
         }
       }
 
@@ -670,6 +788,14 @@ export default function HtmlBlogEditor({
     setEnhanceStep("enhancing");
     try {
       const token = getAuthToken();
+
+      // Strip <body> wrapper if capture accidentally included it
+      let cleanHTML = capturedHTML;
+      const bodyMatch = cleanHTML.match(
+        /^\s*<body[^>]*>([\s\S]*)<\/body>\s*$/i,
+      );
+      if (bodyMatch) cleanHTML = bodyMatch[1].trim();
+
       // Build instructions — always include "preserve existing color scheme" unless user specifies colors
       let finalInstructions = enhanceInstructions.trim();
       const mentionsColor =
@@ -689,7 +815,7 @@ export default function HtmlBlogEditor({
           ...(token ? { Authorization: `Token ${token}` } : {}),
         },
         body: JSON.stringify({
-          html_content: capturedHTML,
+          html_content: cleanHTML,
           content_type: contentType,
           instructions: finalInstructions,
         }),
@@ -699,12 +825,18 @@ export default function HtmlBlogEditor({
         let newVal = value;
         let matched = false;
 
+        // Helper: normalize quotes so single-quote and double-quote HTML compare equally
+        const normQ = (s) => s.replace(/'/g, '"');
+
         // Strategy 1: Use stored source range (most reliable)
         if (capturedSourceRange) {
           const { start, end } = capturedSourceRange;
-          // Verify the source hasn't changed since capture
           const currentSection = value.substring(start, end);
-          if (currentSection === capturedHTML) {
+          // Check exact match or quote-normalized match
+          if (
+            currentSection === capturedHTML ||
+            normQ(currentSection) === normQ(capturedHTML)
+          ) {
             newVal =
               value.substring(0, start) +
               data.enhanced_code +
@@ -719,7 +851,22 @@ export default function HtmlBlogEditor({
           matched = true;
         }
 
-        // Strategy 3: normalized whitespace
+        // Strategy 3: quote-normalized match (handles browser ' → " conversion)
+        if (!matched) {
+          const normCaptured = normQ(capturedHTML);
+          const normValue = normQ(value);
+          const qIdx = normValue.indexOf(normCaptured);
+          if (qIdx !== -1) {
+            // Since ' and " are both 1 char, indices map 1:1
+            newVal =
+              value.substring(0, qIdx) +
+              data.enhanced_code +
+              value.substring(qIdx + capturedHTML.length);
+            matched = true;
+          }
+        }
+
+        // Strategy 4: normalized whitespace
         if (!matched) {
           const norm = capturedHTML.replace(/\s+/g, " ").trim();
           const escaped = norm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -732,7 +879,28 @@ export default function HtmlBlogEditor({
           }
         }
 
-        // Strategy 4: flexible tag matching
+        // Strategy 5: quote-normalized whitespace match
+        if (!matched) {
+          const normCaptured = normQ(capturedHTML).replace(/\s+/g, " ").trim();
+          const normValue = normQ(value);
+          const escaped = normCaptured.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const pat = escaped.split(" ").join("\\s+");
+          try {
+            const rx = new RegExp(pat, "s");
+            const m = normValue.match(rx);
+            if (m) {
+              newVal =
+                value.substring(0, m.index) +
+                data.enhanced_code +
+                value.substring(m.index + m[0].length);
+              matched = true;
+            }
+          } catch (e) {
+            /* regex too complex */
+          }
+        }
+
+        // Strategy 6: flexible tag matching
         if (!matched) {
           const escaped = capturedHTML.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           const flex = escaped.split(/\s+/).join("\\s*(?:<[^>]*>\\s*)*");
@@ -744,7 +912,7 @@ export default function HtmlBlogEditor({
           }
         }
 
-        // Strategy 5: Use source range even if content slightly changed (fuzzy)
+        // Final fallback: use source range even if content changed
         if (!matched && capturedSourceRange) {
           const { start, end } = capturedSourceRange;
           if (start >= 0 && end <= value.length && start < end) {
@@ -756,16 +924,18 @@ export default function HtmlBlogEditor({
           }
         }
 
+        // If nothing matched, do NOT replace entire content — just reset and let user retry
         if (!matched) {
-          alert(
-            "Could not locate the section in the source to replace. " +
-              "The enhanced version has been copied to clipboard. " +
-              "You can paste it manually.",
+          console.warn(
+            "Section enhance: could not locate section in source, skipping replacement.",
           );
-          try {
-            navigator.clipboard.writeText(data.enhanced_code);
-          } catch (e) {}
-          setEnhanceStep("confirming");
+          setEnhanceStep("fullscreen");
+          setStartPt(null);
+          setEndPt(null);
+          setMousePos(null);
+          setCapturedHTML("");
+          setCapturedSourceRange(null);
+          setEnhanceInstructions("");
           return;
         }
         onChange(newVal);

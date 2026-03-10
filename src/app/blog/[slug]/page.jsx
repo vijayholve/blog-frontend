@@ -156,7 +156,7 @@ export default async function BlogPost({ params }) {
 
         {/* Graphical Infographic Section */}
         {post.graphical_content && (
-          <div className="max-w-6xl mx-auto px-6 mt-20 mb-20">
+          <div className="max-w-6xl mx-auto px-6 ">
             <div className="relative">
               {/* Section Header */}
               <div className="text-center mb-10">

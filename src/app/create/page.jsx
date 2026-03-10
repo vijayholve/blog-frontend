@@ -333,6 +333,7 @@ export default function CreatePost() {
   };
 
   const findSourceSectionFs = (target, tagName, sourceValue) => {
+    // Strategy 1: Match by id (most reliable)
     if (target.id) {
       const rx = new RegExp(
         `<${tagName}[^>]*\\bid=["']${target.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'][^>]*>`,
@@ -344,14 +345,18 @@ export default function CreatePost() {
         if (r) return r;
       }
     }
+
+    // Strategy 2: Match by class (exact then flexible)
     if (target.className && typeof target.className === "string") {
-      const cls = target.className.split(/\s+/)[0];
+      const cls = target.className.trim();
       if (cls) {
-        const rx = new RegExp(
-          `<${tagName}[^>]*\\bclass=["'][^"']*\\b${cls.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[^"']*["'][^>]*>`,
-          "i",
+        // Try exact class match first
+        const escapedCls = cls.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const exactRx = new RegExp(
+          `<${tagName}[^>]*class\\s*=\\s*["']${escapedCls}["'][^>]*>`,
+          "si",
         );
-        const m = sourceValue.match(rx);
+        let m = sourceValue.match(exactRx);
         if (m) {
           const r = findClosingTagFs(
             tagName,
@@ -361,8 +366,47 @@ export default function CreatePost() {
           );
           if (r) return r;
         }
+
+        // Try each distinctive class individually
+        const classes = cls.split(/\s+/).filter((c) => c.length > 3);
+        for (const c of classes.slice(0, 4)) {
+          const escapedC = c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const flexRx = new RegExp(
+            `<${tagName}[^>]*class\\s*=\\s*["'][^"']*\\b${escapedC}\\b[^"']*["'][^>]*>`,
+            "i",
+          );
+          m = sourceValue.match(flexRx);
+          if (m) {
+            const r = findClosingTagFs(
+              tagName,
+              sourceValue,
+              m.index,
+              m[0].length,
+            );
+            if (r) return r;
+          }
+        }
       }
     }
+
+    // Strategy 3: Match by inline style attribute
+    const style = target.getAttribute("style") || "";
+    if (style && style.length > 5) {
+      const escapedStyle = style
+        .substring(0, 40)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const styleRx = new RegExp(
+        `<${tagName}[^>]*style\\s*=\\s*["'][^"']*${escapedStyle}[^"']*["'][^>]*>`,
+        "si",
+      );
+      const m = sourceValue.match(styleRx);
+      if (m) {
+        const r = findClosingTagFs(tagName, sourceValue, m.index, m[0].length);
+        if (r) return r;
+      }
+    }
+
+    // Strategy 4: Match by text content
     const text = target.textContent?.trim() || "";
     if (text.length > 10) {
       const snippet = text
@@ -376,6 +420,8 @@ export default function CreatePost() {
         if (r && new RegExp(snippet, "si").test(r.section)) return r;
       }
     }
+
+    // Strategy 5: exact outerHTML match
     const html = target.outerHTML;
     const idx = sourceValue.indexOf(html);
     if (idx !== -1)
@@ -444,15 +490,22 @@ export default function CreatePost() {
         right: selRect.x + selRect.w,
         bottom: selRect.y + selRect.h,
       };
+      // Account for iframe scroll offset so coordinates match
+      const scrollX = iframe.contentWindow?.scrollX || 0;
+      const scrollY = iframe.contentWindow?.scrollY || 0;
       const hits = Array.from(doc.body.querySelectorAll("*")).filter((el) => {
         const r = el.getBoundingClientRect();
+        const elLeft = r.left + scrollX;
+        const elTop = r.top + scrollY;
+        const elRight = r.right + scrollX;
+        const elBottom = r.bottom + scrollY;
         return (
           r.width > 0 &&
           r.height > 0 &&
-          r.left < sel.right &&
-          r.right > sel.left &&
-          r.top < sel.bottom &&
-          r.bottom > sel.top
+          elLeft < sel.right &&
+          elRight > sel.left &&
+          elTop < sel.bottom &&
+          elBottom > sel.top
         );
       });
       if (!hits.length) {
@@ -463,38 +516,146 @@ export default function CreatePost() {
       const topLevel = hits.filter(
         (el) => !hits.some((o) => o !== el && o.contains(el)),
       );
+
+      // Blocklist: never capture these as the target
+      const isBlocklisted = (el) => {
+        if (!el) return true;
+        const tag = el.tagName.toLowerCase();
+        return (
+          tag === "body" ||
+          tag === "html" ||
+          tag === "main" ||
+          el === doc.body ||
+          el === doc.documentElement
+        );
+      };
+
       let target = topLevel[0];
       if (topLevel.length > 1) {
         for (let i = 1; i < topLevel.length; i++) {
           while (target && !target.contains(topLevel[i]))
             target = target.parentElement;
         }
-        if (!target || target === doc.body || target === doc.documentElement)
-          target = topLevel[0].parentElement || topLevel[0];
+        if (isBlocklisted(target)) {
+          target = topLevel[0];
+        }
       }
+
+      // Safety: if target is still blocklisted, pick the best overlapping child
+      if (isBlocklisted(target)) {
+        target = topLevel[0];
+      }
+      if (isBlocklisted(target)) {
+        const children = Array.from(target.children);
+        const overlapping = children.filter((ch) => {
+          const r = ch.getBoundingClientRect();
+          const elLeft = r.left + scrollX;
+          const elTop = r.top + scrollY;
+          const elRight = r.right + scrollX;
+          const elBottom = r.bottom + scrollY;
+          return (
+            r.width > 0 &&
+            r.height > 0 &&
+            elLeft < sel.right &&
+            elRight > sel.left &&
+            elTop < sel.bottom &&
+            elBottom > sel.top
+          );
+        });
+        if (overlapping.length === 1) {
+          target = overlapping[0];
+        } else if (overlapping.length > 1) {
+          target = overlapping.reduce((best, el) => {
+            const r = el.getBoundingClientRect();
+            const ox = Math.max(
+              0,
+              Math.min(r.right + scrollX, sel.right) -
+                Math.max(r.left + scrollX, sel.left),
+            );
+            const oy = Math.max(
+              0,
+              Math.min(r.bottom + scrollY, sel.bottom) -
+                Math.max(r.top + scrollY, sel.top),
+            );
+            const area = ox * oy;
+            const br = best.getBoundingClientRect();
+            const bx = Math.max(
+              0,
+              Math.min(br.right + scrollX, sel.right) -
+                Math.max(br.left + scrollX, sel.left),
+            );
+            const by = Math.max(
+              0,
+              Math.min(br.bottom + scrollY, sel.bottom) -
+                Math.max(br.top + scrollY, sel.top),
+            );
+            return area > bx * by ? el : best;
+          }, overlapping[0]);
+        }
+      }
+
       const tagName = target.tagName.toLowerCase();
       let result = findSourceSectionFs(target, tagName, content);
-      if (
-        !result &&
-        target.parentElement &&
-        target.parentElement !== doc.body
-      ) {
-        result = findSourceSectionFs(
-          target.parentElement,
-          target.parentElement.tagName.toLowerCase(),
-          content,
-        );
+      // Walk up the DOM tree trying multiple parent levels
+      if (!result) {
+        let parent = target.parentElement;
+        for (
+          let level = 0;
+          level < 4 &&
+          parent &&
+          parent !== doc.body &&
+          parent !== doc.documentElement;
+          level++
+        ) {
+          result = findSourceSectionFs(
+            parent,
+            parent.tagName.toLowerCase(),
+            content,
+          );
+          if (result) break;
+          parent = parent.parentElement;
+        }
       }
       if (result) {
         setCapturedSectionHTML(result.section);
         setCapturedSectionRange({ start: result.start, end: result.end });
       } else {
+        // Fallback: use rendered HTML but find approximate range in source
         const html = target.outerHTML;
         setCapturedSectionHTML(html);
-        const idx = content.indexOf(html);
-        setCapturedSectionRange(
-          idx !== -1 ? { start: idx, end: idx + html.length } : null,
-        );
+        let idx = content.indexOf(html);
+        if (idx !== -1) {
+          setCapturedSectionRange({ start: idx, end: idx + html.length });
+        } else {
+          // Use a text snippet to locate the approximate section
+          const textSnippet = (target.textContent || "")
+            .trim()
+            .substring(0, 80);
+          if (textSnippet.length > 10) {
+            const escapedSnippet = textSnippet
+              .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+              .replace(/\s+/g, "\\s+");
+            const snippetRx = new RegExp(escapedSnippet, "si");
+            const sm = content.match(snippetRx);
+            if (sm) {
+              let tagStart = sm.index;
+              while (tagStart > 0 && content[tagStart] !== "<") tagStart--;
+              const closeTag = `</${tagName}`;
+              let tagEnd = content.indexOf(closeTag, sm.index + sm[0].length);
+              if (tagEnd === -1) tagEnd = sm.index + sm[0].length;
+              else tagEnd = content.indexOf(">", tagEnd) + 1;
+              if (tagEnd > tagStart) {
+                setCapturedSectionRange({ start: tagStart, end: tagEnd });
+              } else {
+                setCapturedSectionRange(null);
+              }
+            } else {
+              setCapturedSectionRange(null);
+            }
+          } else {
+            setCapturedSectionRange(null);
+          }
+        }
       }
       setSectionMode("placed");
     } catch (err) {
@@ -509,6 +670,12 @@ export default function CreatePost() {
     setSectionMode("enhancing");
     setIsEnhancingSection(true);
     const token = getAuthToken();
+
+    // Strip <body> wrapper if capture accidentally included it
+    let cleanHTML = capturedSectionHTML;
+    const bodyMatch = cleanHTML.match(/^\s*<body[^>]*>([\s\S]*)<\/body>\s*$/i);
+    if (bodyMatch) cleanHTML = bodyMatch[1].trim();
+
     try {
       let instr = enhanceSectionInstr.trim();
       if (
@@ -527,7 +694,7 @@ export default function CreatePost() {
           ...(token ? { Authorization: `Token ${token}` } : {}),
         },
         body: JSON.stringify({
-          html_content: capturedSectionHTML,
+          html_content: cleanHTML,
           content_type: "blog",
           instructions: instr,
         }),
@@ -536,9 +703,17 @@ export default function CreatePost() {
       if (res.ok && data.enhanced_code) {
         let newContent = content,
           matched = false;
+
+        // Helper: normalize quotes so single-quote and double-quote HTML compare equally
+        const normQ = (s) => s.replace(/'/g, '"');
+
         if (capturedSectionRange) {
           const { start, end } = capturedSectionRange;
-          if (content.substring(start, end) === capturedSectionHTML) {
+          const currentSection = content.substring(start, end);
+          if (
+            currentSection === capturedSectionHTML ||
+            normQ(currentSection) === normQ(capturedSectionHTML)
+          ) {
             newContent =
               content.substring(0, start) +
               data.enhanced_code +
@@ -546,10 +721,27 @@ export default function CreatePost() {
             matched = true;
           }
         }
+        // Strategy 2: exact string match
         if (!matched && content.includes(capturedSectionHTML)) {
           newContent = content.replace(capturedSectionHTML, data.enhanced_code);
           matched = true;
         }
+
+        // Strategy 3: quote-normalized match (handles browser ' → " conversion)
+        if (!matched) {
+          const normCaptured = normQ(capturedSectionHTML);
+          const normValue = normQ(content);
+          const qIdx = normValue.indexOf(normCaptured);
+          if (qIdx !== -1) {
+            newContent =
+              content.substring(0, qIdx) +
+              data.enhanced_code +
+              content.substring(qIdx + capturedSectionHTML.length);
+            matched = true;
+          }
+        }
+
+        // Strategy 4: normalized whitespace match
         if (!matched) {
           const norm = capturedSectionHTML.replace(/\s+/g, " ").trim();
           const escaped = norm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -560,12 +752,68 @@ export default function CreatePost() {
             matched = true;
           }
         }
-        if (matched) setContent(newContent);
-        else {
-          alert(
-            "Could not locate the section. Enhanced HTML copied to clipboard.",
+
+        // Strategy 5: quote-normalized whitespace match
+        if (!matched) {
+          const normCaptured = normQ(capturedSectionHTML)
+            .replace(/\s+/g, " ")
+            .trim();
+          const normValue = normQ(content);
+          const escaped = normCaptured.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const pat = escaped.split(" ").join("\\s+");
+          try {
+            const rx = new RegExp(pat, "s");
+            const m = normValue.match(rx);
+            if (m) {
+              newContent =
+                content.substring(0, m.index) +
+                data.enhanced_code +
+                content.substring(m.index + m[0].length);
+              matched = true;
+            }
+          } catch (e) {
+            /* regex too complex */
+          }
+        }
+
+        // Strategy 6: flexible tag matching (handles whitespace between tags)
+        if (!matched) {
+          const escaped = capturedSectionHTML.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
           );
-          navigator.clipboard.writeText(data.enhanced_code);
+          const flex = escaped.split(/\s+/).join("\\s*(?:<[^>]*>\\s*)*");
+          try {
+            const rx = new RegExp(flex, "s");
+            const m = content.match(rx);
+            if (m) {
+              newContent = content.replace(m[0], data.enhanced_code);
+              matched = true;
+            }
+          } catch (e) {
+            /* regex too complex, skip */
+          }
+        }
+
+        // Final fallback: use stored range directly
+        if (!matched && capturedSectionRange) {
+          const { start, end } = capturedSectionRange;
+          if (start >= 0 && end <= content.length && start < end) {
+            newContent =
+              content.substring(0, start) +
+              data.enhanced_code +
+              content.substring(end);
+            matched = true;
+          }
+        }
+
+        // Only apply if we found the exact section — never replace entire content
+        if (matched) {
+          setContent(newContent);
+        } else {
+          console.warn(
+            "Section enhance: could not locate section in source, skipping replacement.",
+          );
         }
       } else {
         if (res.status === 429) alert("Rate limited. Please wait.");
