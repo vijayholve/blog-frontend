@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { loginUser } from "@/lib/authApi";
+
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { loginUser } from "../../lib/authApi";
 
 export default function LoginForm() {
   const router = useRouter();

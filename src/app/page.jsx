@@ -1,9 +1,10 @@
 // src/app/page.jsx
-import { getPosts } from "@/lib/api";
-import BlogCard from "@/components/ui/BlogCard";
-import SectionHeader from "@/components/ui/SectionHeader";
-import FeaturedCard from "@/components/ui/FeaturedCard";
-import Newsletter from "@/components/ui/Newsletter";
+import { getPosts } from "../lib/api";
+
+import SectionHeader from "../components/ui/SectionHeader";
+ import Newsletter from "../components/ui/Newsletter";
+import BlogCard from "../components/ui/BlogCard";
+import FeaturedCard from "../components/ui/FeaturedCard";
 
 export default async function HomePage() {
   const posts = await getPosts();

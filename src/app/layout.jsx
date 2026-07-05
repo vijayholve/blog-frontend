@@ -1,7 +1,7 @@
 // src/app/layout.jsx
+import Navbar from "../components/Navbar";
 import "./globals.css"; // Importing Tailwind and global styles
-import Navbar from "@/components/Navbar";
-
+ 
 export const metadata = {
   title: "My Personal Blog",
   description: "Built with Next.js and Django for perfect SEO",

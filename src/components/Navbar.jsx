@@ -3,8 +3,8 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { getStoredUser, logoutUser } from "@/lib/authApi";
 import { useRouter } from "next/navigation";
+import { getStoredUser ,logoutUser} from "../lib/authApi";
 
 export default function Navbar() {
   const router = useRouter();

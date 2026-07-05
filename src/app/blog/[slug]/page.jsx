@@ -1,11 +1,11 @@
 // src/app/blog/[slug]/page.jsx
-import { getPostBySlug } from "@/lib/api";
+import { getPostBySlug } from "../../../lib/api";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import HtmlIframe from "@/components/HtmlIframe";
-
+import DOMPurify from "isomorphic-dompurify";
+import HtmlIframe from "../../../components/HtmlIframe";
 export async function generateMetadata({ params }) {
   const resolvedParams = await params;
   const post = await getPostBySlug(resolvedParams.slug);
@@ -28,6 +28,9 @@ export default async function BlogPost({ params }) {
     'src="/media/',
     'src="http://127.0.0.1:8000/media/',
   );
+  console.log("fixedContent ", fixedContent);
+
+  const cleanHTML = DOMPurify.sanitize(fixedContent);
 
   return (
     <div className="min-h-screen bg-white">
@@ -105,11 +108,7 @@ export default async function BlogPost({ params }) {
           >
             {post.is_html ? (
               /* --- AI GENERATED HTML MODE (Full Screen Power) --- */
-              <HtmlIframe
-                html={fixedContent}
-                title={post.title}
-                className="bg-transparent"
-              />
+              <div dangerouslySetInnerHTML={{ __html: cleanHTML }} />
             ) : (
               /* --- STANDARD BLOG MODE (Readability Focused) --- */
               <div

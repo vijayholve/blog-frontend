@@ -23,11 +23,7 @@ export default function MyPostsPage() {
   const fetchMyPosts = async () => {
     const token = getAuthToken();
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/my-posts/", {
-        headers: {
-          Authorization: `Token ${token}`,
-        },
-      });
+      const res = await getPosts(token);
 
       if (res.ok) {
         const data = await res.json();
