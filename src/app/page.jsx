@@ -1,8 +1,8 @@
 // src/app/page.jsx
-import { getPosts } from "../lib/api";
+import { getPosts } from "../lib/postsApi";
 
 import SectionHeader from "../components/ui/SectionHeader";
- import Newsletter from "../components/ui/Newsletter";
+import Newsletter from "../components/ui/Newsletter";
 import BlogCard from "../components/ui/BlogCard";
 import FeaturedCard from "../components/ui/FeaturedCard";
 

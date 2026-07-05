@@ -3,10 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import HtmlBlogEditor from "../../components/HtmlBlogEditor";
-import PromptExamples from "/components/PromptExamples";
-import GraphicalExamples from "/components/GraphicalExamples";
-import { generateAIContent } from "/lib/api";
-import { getAuthToken } from "/lib/authApi";
+import PromptExamples from "@/components/PromptExamples";
+import GraphicalExamples from "@/components/GraphicalExamples";
+import { getAuthToken } from "@/lib/authApi";
 
 export default function CreatePost() {
   const [title, setTitle] = useState("");

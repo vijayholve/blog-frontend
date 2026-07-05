@@ -1,5 +1,5 @@
 // src/app/blog/[slug]/page.jsx
-import { getPostBySlug } from "../../../lib/api";
+import { getPostBySlug } from "../../../lib/postsApi";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -65,7 +65,7 @@ export default async function BlogPost({ params }) {
         </nav>
 
         {/* Hero Section: Centered & Clean */}
-        <header className="pt-32 pb-16 px-6 max-w-5xl mx-auto text-center">
+        <header className="pt-12 pb-16 px-6 max-w-5xl mx-auto text-center">
           <div className="inline-block px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-8">
             Published{" "}
             {new Date(post.created_at).toLocaleDateString("en-US", {
@@ -74,10 +74,6 @@ export default async function BlogPost({ params }) {
               year: "numeric",
             })}
           </div>
-
-          <h1 className="text-6xl md:text-8xl font-black tracking-tight text-slate-900 mb-8 leading-[1.05]">
-            {post.title}
-          </h1>
 
           {post.excerpt && (
             <p className="text-xl md:text-2xl text-slate-500 max-w-3xl mx-auto font-medium leading-relaxed">

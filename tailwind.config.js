@@ -1,8 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    "./src/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
+  content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       animation: {
@@ -17,6 +15,10 @@ module.exports = {
           "66%": { transform: "translate(-20px, 20px) scale(0.9)" },
           "100%": { transform: "translate(0px, 0px) scale(1)" },
         },
+        fontFamily: {
+          inter: ["Inter", "sans-serif"],
+          playfair: ["Playfair Display", "serif"],
+        },
         fadeIn: {
           "0%": { opacity: 0 },
           "100%": { opacity: 1 },
@@ -28,7 +30,7 @@ module.exports = {
       },
     },
   },
-plugins: [
-  require('@tailwindcss/typography'), // This MUST be here
-],
-}
+  plugins: [
+    require("@tailwindcss/typography"), // This MUST be here
+  ],
+};
