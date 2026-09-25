@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getAuthToken } from "@/lib/authApi";
+import { getPosts } from "@/lib/postsApi";
 
 export default function MyPostsPage() {
   const router = useRouter();

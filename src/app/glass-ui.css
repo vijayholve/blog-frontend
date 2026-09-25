@@ -1,0 +1,195 @@
+/* ============================= */
+/* GLOBAL */
+/* ============================= */
+
+#glass-ui-body {
+  font-family: 'Poppins', sans-serif;
+  background: linear-gradient(120deg, #0f172a, #1e293b);
+  color: #e2e8f0;
+  line-height: 1.8;
+}
+
+section {
+  padding: 70px 20px;
+  max-width: 1100px;
+  margin: auto;
+}
+
+/* ============================= */
+/* HERO */
+/* ============================= */
+
+#glass-ui-hero {
+  text-align: center;
+  padding: 120px 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(15px);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+}
+
+#glass-ui-hero-title {
+  font-size: 52px;
+  font-weight: 800;
+  background: linear-gradient(to right, #38bdf8, #a78bfa);
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+#glass-ui-hero-subtitle {
+  margin-top: 15px;
+  font-size: 18px;
+  color: #cbd5f5;
+}
+
+/* ============================= */
+/* INTRO */
+/* ============================= */
+
+#glass-ui-intro-title {
+  font-size: 30px;
+  font-weight: 700;
+  margin-bottom: 15px;
+}
+
+#glass-ui-intro-text {
+  font-size: 17px;
+  margin-bottom: 10px;
+  color: #cbd5e1;
+}
+
+/* ============================= */
+/* CARD GRID */
+/* ============================= */
+
+#glass-ui-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 25px;
+  margin-top: 40px;
+}
+
+.glass-card {
+  padding: 25px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(10px);
+  transition: 0.3s ease;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.glass-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+.glass-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* ============================= */
+/* QUOTE */
+/* ============================= */
+
+#glass-ui-quote {
+  padding: 25px;
+  border-radius: 12px;
+  background: rgba(56,189,248,0.1);
+  border: 1px solid rgba(56,189,248,0.3);
+}
+
+#glass-ui-quote-text {
+  font-size: 20px;
+  font-style: italic;
+}
+
+#glass-ui-quote-author {
+  margin-top: 8px;
+  color: #94a3b8;
+}
+
+/* ============================= */
+/* STEPS */
+/* ============================= */
+
+.glass-step {
+  display: flex;
+  gap: 12px;
+  margin-top: 15px;
+  align-items: center;
+}
+
+.glass-step span {
+  background: #38bdf8;
+  color: black;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+/* ============================= */
+/* STATS */
+/* ============================= */
+
+#glass-ui-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 25px;
+  text-align: center;
+}
+
+.glass-stat-number {
+  font-size: 36px;
+  font-weight: 800;
+  color: #38bdf8;
+}
+
+.glass-stat-label {
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+/* ============================= */
+/* DETAIL */
+/* ============================= */
+
+#glass-ui-detail-title {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+/* ============================= */
+/* CTA */
+/* ============================= */
+
+#glass-ui-cta {
+  text-align: center;
+  padding: 60px 20px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #38bdf8, #a78bfa);
+  color: white;
+}
+
+#glass-ui-cta-title {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+#glass-ui-btn {
+  margin-top: 20px;
+  padding: 12px 28px;
+  border-radius: 999px;
+  border: none;
+  background: white;
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+#glass-ui-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+}

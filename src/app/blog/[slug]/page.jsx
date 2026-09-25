@@ -8,11 +8,32 @@ import DOMPurify from "isomorphic-dompurify";
 import HtmlIframe from "../../../components/HtmlIframe";
 export async function generateMetadata({ params }) {
   const resolvedParams = await params;
+
   const post = await getPostBySlug(resolvedParams.slug);
+  console.log("Blog ", post);
   if (!post) return { title: "Post Not Found" };
+
+  const metaData = post.seo_metadata?.data ?? {};
+  const metaTitle = metaData.meta_title || post.title;
+  const metaDescription = metaData.meta_description || post.excerpt;
+  const metaKeywords = Array.isArray(metaData.keywords)
+    ? metaData.keywords.filter(Boolean)
+    : [];
+
   return {
-    title: `${post.title} | MyBlog`,
-    description: post.excerpt,
+    title: `${metaTitle} | MyBlog`,
+    description: metaDescription,
+    keywords: metaKeywords,
+    openGraph: {
+      title: metaData.og_title || metaTitle,
+      description: metaData.og_description || metaDescription,
+      type: "article",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: metaTitle,
+      description: metaDescription,
+    },
   };
 }
 
@@ -30,10 +51,22 @@ export default async function BlogPost({ params }) {
   );
   console.log("fixedContent ", fixedContent);
 
-  const cleanHTML = DOMPurify.sanitize(fixedContent);
+  const cleanHTML = DOMPurify.sanitize(fixedContent).replace(
+    /<\/?body[^>]*>/g,
+    "",
+  );
+  const jsonLdData = post.json_ld_payload?.data ?? null;
 
   return (
     <div className="min-h-screen bg-white">
+      {jsonLdData && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(jsonLdData),
+          }}
+        />
+      )}
       {/* Dynamic Ambient Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
         <div className="absolute -top-24 -right-24 w-[500px] h-[500px] bg-blue-100/50 rounded-full blur-[120px] animate-pulse"></div>
@@ -103,8 +136,11 @@ export default async function BlogPost({ params }) {
             className={`${post.is_html ? "bg-transparent" : "bg-white shadow-2xl rounded-[3rem] p-8 md:p-20 border border-slate-100"}`}
           >
             {post.is_html ? (
-              /* --- AI GENERATED HTML MODE (Full Screen Power) --- */
-              <div dangerouslySetInnerHTML={{ __html: cleanHTML }} />
+              <main>
+                <article>
+                  <div dangerouslySetInnerHTML={{ __html: cleanHTML }} />
+                </article>
+              </main>
             ) : (
               /* --- STANDARD BLOG MODE (Readability Focused) --- */
               <div

@@ -1,11 +1,11 @@
-import { buildSiteUrl } from "../lib/site";
 
 export default function robots() {
   return {
     rules: {
-      userAgent: "*",
-      allow: "/",
+      userAgent: '*',
+      allow: '/',
+      disallow: '/private/',
     },
-    sitemap: buildSiteUrl("/sitemap.xml"),
-  };
+    sitemap: 'https://acme.com/sitemap.xml',
+  }
 }

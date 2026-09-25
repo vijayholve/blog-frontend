@@ -30,6 +30,6 @@
     "**/*.mts",
     "**/*.ts",
     "**/*.tsx"
-  ],
+, "src/app/robots.js"  ],
   "exclude": ["node_modules"]
 }

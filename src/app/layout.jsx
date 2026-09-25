@@ -1,6 +1,8 @@
 // src/app/layout.jsx
 import Navbar from "../components/Navbar";
 import "./globals.css"; // Importing Tailwind and global styles
+import "./editorial.css"; // Importing Tailwind and global styles
+
 import { Inter, Playfair_Display } from "next/font/google";
 
 const inter = Inter({ subsets: ["latin"] });
